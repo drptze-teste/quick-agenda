@@ -20,11 +20,13 @@ export const DEFAULT_PROFESSIONAL: Professional = {
 };
 
 export const generateScheduleFromConfig = (config: SlotConfig, timeList: string[]): TimeSlot[] => {
-  return timeList.map((time, index) => ({
+  const safeConfig = config || {};
+  const safeTimeList = timeList || [];
+  return safeTimeList.map((time, index) => ({
     id: `slot-${index}`,
     time,
-    type: config[time] || 'available',
-    attendeeName: config[time] === 'lunch' ? 'Almoço' : config[time] === 'break' ? 'Intervalo' : undefined
+    type: (safeConfig[time] as any) || 'available',
+    attendeeName: safeConfig[time] === 'lunch' ? 'Almoço' : safeConfig[time] === 'break' ? 'Intervalo' : undefined
   }));
 };
 
