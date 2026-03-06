@@ -139,29 +139,32 @@ export default function App() {
   const getScheduleKey = (date: string, proId: string) => `${date}::${proId}`;
 
   const selectedProfessional = professionals.find(p => p.id === selectedProfessionalId) || professionals[0];
-  const proSlotConfig = selectedProfessional?.slotConfig && Object.keys(selectedProfessional.slotConfig).length > 0 
-    ? selectedProfessional.slotConfig 
-    : slotConfig;
+  
+  // Merge global config with professional config for the current view
+  const proSlotConfig = {
+    ...slotConfig,
+    ...(selectedProfessional?.slotConfig || {})
+  };
 
-  // Get current slots. If not found in state, generate from current Configuration
+  // Get current slots. If not found in state, we'll build it from config
   const currentScheduleKey = getScheduleKey(currentDate, selectedProfessionalId);
-  const rawSlots = (schedules || {})[currentScheduleKey] || generateScheduleFromConfig(proSlotConfig, timeList);
+  const savedSlots = (schedules || {})[currentScheduleKey] || [];
 
-  // Apply current Config to the slots (this allows 'live' updates of Break/Lunch types even if data exists)
-  // We prioritize the 'booked' status from the saved schedule, but override 'available'/'break'/'lunch' based on config
-  const currentSlots = rawSlots.map(slot => {
-    // If it is booked, keep it booked regardless of config (unless we want to force breaks over bookings, but safer to keep booking)
-    if (slot.type === 'booked') return slot;
-
-    // If it's not booked, verify what the config says this time should be
-    const configType = proSlotConfig[slot.time] || 'available';
+  // Always build the schedule based on the current timeList to ensure updates reflect immediately
+  const currentSlots = timeList.map((time, index) => {
+    // Try to find a saved slot for this time
+    const savedSlot = savedSlots.find(s => s.time === time);
     
-    // If the saved slot matches the config, return it
-    if (slot.type === configType) return slot;
+    // If it's booked, we keep the booking
+    if (savedSlot && savedSlot.type === 'booked') {
+      return savedSlot;
+    }
 
-    // Otherwise, update the type to match the new config
+    // Otherwise, use the current config (global + pro override)
+    const configType = proSlotConfig[time] || 'available';
     return {
-      ...slot,
+      id: savedSlot?.id || `slot-${index}-${time}`,
+      time,
       type: configType,
       attendeeName: configType === 'lunch' ? 'Almoço' : configType === 'break' ? 'Intervalo' : undefined
     };
