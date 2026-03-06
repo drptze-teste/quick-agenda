@@ -1,7 +1,21 @@
 import { GoogleGenAI } from "@google/genai";
 import { TimeSlot } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+let aiInstance: GoogleGenAI | null = null;
+
+function getAI() {
+  if (!aiInstance) {
+    // In Vite/Vercel, we might need VITE_ prefix, but we'll try both for compatibility
+    const apiKey = process.env.GEMINI_API_KEY || (import.meta as any).env?.VITE_GEMINI_API_KEY;
+    
+    if (!apiKey) {
+      throw new Error("GEMINI_API_KEY is not defined. Please set it in your environment variables.");
+    }
+    
+    aiInstance = new GoogleGenAI({ apiKey });
+  }
+  return aiInstance;
+}
 
 export async function getScheduleSummary(slots: TimeSlot[], professionalName: string, date: string): Promise<string> {
   const bookedSlots = slots.filter(s => s.type === 'booked');
@@ -20,6 +34,7 @@ export async function getScheduleSummary(slots: TimeSlot[], professionalName: st
   `;
 
   try {
+    const ai = getAI();
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: prompt,
@@ -28,6 +43,6 @@ export async function getScheduleSummary(slots: TimeSlot[], professionalName: st
     return response.text || "Resumo indisponível.";
   } catch (error) {
     console.error("Gemini Error:", error);
-    throw error;
+    return "Não foi possível gerar o resumo (verifique a chave API).";
   }
 }
