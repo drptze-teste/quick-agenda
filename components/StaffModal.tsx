@@ -28,9 +28,6 @@ interface StaffModalProps {
   onUpdateLogo: (url: string) => void;
   clientName: string;
   onUpdateClientName: (name: string) => void;
-  // Admin Password
-  adminPassword: string;
-  onUpdateAdminPassword: (password: string) => void;
   // Reports Props
   schedules: Record<string, TimeSlot[]>;
 }
@@ -56,8 +53,6 @@ const StaffModal: React.FC<StaffModalProps> = ({
   onUpdateLogo,
   clientName,
   onUpdateClientName,
-  adminPassword,
-  onUpdateAdminPassword,
   schedules
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>('staff');
@@ -149,7 +144,7 @@ const StaffModal: React.FC<StaffModalProps> = ({
               onClick={() => setActiveTab('branding')}
               className={`flex items-center gap-3 p-3 rounded-2xl transition-all ${activeTab === 'branding' ? 'bg-corporate-blue text-white shadow-lg shadow-blue-900/20' : 'text-slate-500 hover:bg-slate-100'}`}
             >
-              <BarChart2 size={20} />
+              <Flower2 size={20} />
               <span className="hidden sm:inline font-bold text-sm">Branding</span>
             </button>
             <button 
@@ -358,23 +353,6 @@ const StaffModal: React.FC<StaffModalProps> = ({
                         className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:border-corporate-blue outline-none"
                       />
                     </div>
-                  </div>
-                </div>
-
-                <div className="pt-8 border-t border-slate-100">
-                  <h4 className="text-lg font-black text-corporate-blue mb-4 flex items-center gap-2">
-                    <Lock size={20} className="text-blue-400" />
-                    Segurança
-                  </h4>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Senha Administrativa</label>
-                    <input
-                      type="text"
-                      value={adminPassword}
-                      onChange={(e) => onUpdateAdminPassword(e.target.value)}
-                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:border-corporate-blue outline-none font-mono"
-                    />
-                    <p className="mt-2 text-[10px] text-slate-400 italic">Esta senha é necessária para acessar este painel de configurações.</p>
                   </div>
                 </div>
               </div>

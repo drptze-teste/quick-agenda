@@ -5,7 +5,6 @@ import { TimeSlot, Professional, SlotConfig } from './types';
 import SlotItem from './components/SlotItem';
 import { LayoutGrid, List, Sparkles, Flower2, CalendarDays, Users, UserCircle, ChevronDown, Settings, CloudOff, Cloud, Printer, Trash2 } from 'lucide-react';
 import BookingModal from './components/BookingModal';
-import LoginModal from './components/LoginModal';
 import BenesseLogo from './components/BenesseLogo';
 import StaffModal from './components/StaffModal';
 import { getScheduleSummary } from './services/geminiService';
@@ -17,7 +16,6 @@ export default function App() {
   const [timeList, setTimeList] = useState<string[]>(TIME_LIST);
   const [logoUrl, setLogoUrl] = useState<string>('');
   const [clientName, setClientName] = useState<string>('Cescon Barrieu');
-  const [adminPassword, setAdminPassword] = useState<string>('admin123');
 
   // --- APP STATE ---
   const [currentDate, setCurrentDate] = useState<string>('2026-01-01');
@@ -31,8 +29,6 @@ export default function App() {
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
-  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [viewMode, setViewMode] = useState<'dashboard' | 'list'>('dashboard');
   const [summary, setSummary] = useState<string>("");
   const [isLoadingSummary, setIsLoadingSummary] = useState(false);
@@ -59,7 +55,6 @@ export default function App() {
             setTimeList(data.timeList || TIME_LIST);
             setLogoUrl(data.logoUrl || '');
             setClientName(data.clientName || 'Cescon Barrieu');
-            setAdminPassword(data.adminPassword || 'admin123');
             setIsOnline(true);
             
             // Sync to local storage as backup
@@ -84,7 +79,6 @@ export default function App() {
             setTimeList(data.timeList || TIME_LIST);
             setLogoUrl(data.logoUrl || '');
             setClientName(data.clientName || 'Cescon Barrieu');
-            setAdminPassword(data.adminPassword || 'admin123');
           }
         }
       } finally {
@@ -107,8 +101,7 @@ export default function App() {
         availableDates,
         timeList,
         logoUrl,
-        clientName,
-        adminPassword
+        clientName
       };
 
       // Always save to localStorage first (offline safety)
@@ -138,7 +131,7 @@ export default function App() {
     // Debounce saving
     const timeout = setTimeout(saveData, 1000);
     return () => clearTimeout(timeout);
-  }, [schedules, slotConfig, professionals, availableDates, timeList, logoUrl, clientName, adminPassword]);
+  }, [schedules, slotConfig, professionals, availableDates, timeList, logoUrl, clientName]);
 
   // --- HELPERS ---
 
@@ -188,11 +181,7 @@ export default function App() {
   };
 
   const handleAdminClick = () => {
-    if (isAuthenticated) {
-      setIsStaffModalOpen(true);
-    } else {
-      setIsLoginModalOpen(true);
-    }
+    setIsStaffModalOpen(true);
   };
 
   const handleBooking = (name: string) => {
@@ -558,16 +547,6 @@ export default function App() {
         onBook={handleBooking}
       />
 
-      <LoginModal
-        isOpen={isLoginModalOpen}
-        onClose={() => setIsLoginModalOpen(false)}
-        onLoginSuccess={() => {
-          setIsAuthenticated(true);
-          setIsLoginModalOpen(false);
-          setIsStaffModalOpen(true);
-        }}
-      />
-
       <StaffModal
         isOpen={isStaffModalOpen}
         onClose={() => setIsStaffModalOpen(false)}
@@ -587,8 +566,6 @@ export default function App() {
         onUpdateLogo={setLogoUrl}
         clientName={clientName}
         onUpdateClientName={setClientName}
-        adminPassword={adminPassword}
-        onUpdateAdminPassword={setAdminPassword}
         schedules={schedules}
       />
     </div>

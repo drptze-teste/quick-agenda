@@ -46,8 +46,7 @@ app.get("/api/data", async (req, res) => {
       availableDates: settings?.available_dates || [],
       timeList: settings?.time_list || [],
       logoUrl: settings?.logo_url || '',
-      clientName: settings?.client_name || 'Benesse Quick Massage',
-      adminPassword: settings?.admin_password || 'admin123'
+      clientName: settings?.client_name || 'Benesse Quick Massage'
     });
   } catch (error) {
     console.error("Error fetching data:", error);
@@ -55,47 +54,9 @@ app.get("/api/data", async (req, res) => {
   }
 });
 
-app.post("/api/login", async (req, res) => {
-  const { password } = req.body;
-  
-  try {
-    if (!supabaseUrl || !supabaseKey) {
-      if (password === 'admin123') {
-        return res.json({ status: "success", authenticated: true });
-      }
-      return res.status(401).json({ status: "error", message: "Invalid password" });
-    }
-
-    const { data: settings, error } = await supabase
-      .from('app_settings')
-      .select('admin_password')
-      .eq('id', 'default')
-      .single();
-
-    if (error) {
-      if (password === 'admin123') {
-        return res.json({ status: "success", authenticated: true });
-      }
-    }
-
-    const dbPassword = settings?.admin_password || 'admin123';
-
-    if (dbPassword === password) {
-      res.json({ status: "success", authenticated: true });
-    } else {
-      res.status(401).json({ status: "error", message: "Invalid password" });
-    }
-  } catch (err) {
-    if (password === 'admin123') {
-      return res.json({ status: "success", authenticated: true });
-    }
-    res.status(500).json({ status: "error", message: "Internal server error" });
-  }
-});
-
 app.post("/api/save", async (req, res) => {
   try {
-    const { schedules, slotConfig, professionals, availableDates, timeList, logoUrl, clientName, adminPassword } = req.body;
+    const { schedules, slotConfig, professionals, availableDates, timeList, logoUrl, clientName } = req.body;
 
     await supabase
       .from('app_settings')
@@ -103,7 +64,6 @@ app.post("/api/save", async (req, res) => {
         id: 'default',
         logo_url: logoUrl,
         client_name: clientName,
-        admin_password: adminPassword,
         available_dates: availableDates,
         time_list: timeList,
         slot_config: slotConfig,
