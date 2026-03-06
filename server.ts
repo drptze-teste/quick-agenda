@@ -63,18 +63,44 @@ async function startServer() {
 
   app.post("/api/login", async (req, res) => {
     const { password } = req.body;
-    const { data: settings } = await supabase
-      .from('app_settings')
-      .select('admin_password')
-      .eq('id', 'default')
-      .single();
+    
+    try {
+      if (!supabaseUrl || !supabaseKey) {
+        console.warn("Supabase environment variables are missing. Falling back to default password.");
+        if (password === 'admin123') {
+          return res.json({ status: "success", authenticated: true });
+        }
+        return res.status(401).json({ status: "error", message: "Invalid password" });
+      }
 
-    const dbPassword = settings?.admin_password || 'admin123';
+      const { data: settings, error } = await supabase
+        .from('app_settings')
+        .select('admin_password')
+        .eq('id', 'default')
+        .single();
 
-    if (dbPassword === password) {
-      res.json({ status: "success", authenticated: true });
-    } else {
-      res.status(401).json({ status: "error", message: "Invalid password" });
+      if (error) {
+        console.error("Supabase error during login check:", error.message);
+        // If table doesn't exist or other DB error, still allow default password
+        if (password === 'admin123') {
+          return res.json({ status: "success", authenticated: true });
+        }
+      }
+
+      const dbPassword = settings?.admin_password || 'admin123';
+
+      if (dbPassword === password) {
+        res.json({ status: "success", authenticated: true });
+      } else {
+        res.status(401).json({ status: "error", message: "Invalid password" });
+      }
+    } catch (err) {
+      console.error("Unexpected error during login:", err);
+      // Last resort fallback
+      if (password === 'admin123') {
+        return res.json({ status: "success", authenticated: true });
+      }
+      res.status(500).json({ status: "error", message: "Internal server error" });
     }
   });
 
