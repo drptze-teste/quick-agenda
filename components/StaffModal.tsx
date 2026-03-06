@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { Professional, SlotConfig, TimeSlot } from '../types';
 import { TIME_LIST } from '../constants';
-import { X, Plus, Users, Trash2, Clock, Calendar, Settings, BarChart2, Lock } from 'lucide-react';
+import { X, Plus, Users, Trash2, Clock, Calendar, Settings, BarChart2, Flower2 } from 'lucide-react';
 
 interface StaffModalProps {
   isOpen: boolean;
