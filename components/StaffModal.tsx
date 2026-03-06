@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { Professional, SlotConfig, TimeSlot } from '../types';
 import { TIME_LIST } from '../constants';
-import { X, Plus, Users, Trash2, Clock, Calendar, Settings, BarChart2, Flower2 } from 'lucide-react';
+import { X, Plus, Users, Trash2, Clock, Calendar, Settings, BarChart2, Flower2, Upload } from 'lucide-react';
 
 interface StaffModalProps {
   isOpen: boolean;
@@ -333,7 +333,7 @@ const StaffModal: React.FC<StaffModalProps> = ({
               <div className="animate-fade-in space-y-8">
                 <div>
                   <h4 className="text-lg font-black text-corporate-blue mb-4">Identidade Visual</h4>
-                  <div className="space-y-4">
+                  <div className="space-y-6">
                     <div>
                       <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Nome do Cliente</label>
                       <input
@@ -343,14 +343,52 @@ const StaffModal: React.FC<StaffModalProps> = ({
                         className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:border-corporate-blue outline-none"
                       />
                     </div>
+                    
                     <div>
-                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">URL do Logo</label>
+                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Logotipo do Cliente</label>
+                      <div className="flex flex-col gap-4">
+                        {logoUrl && (
+                          <div className="w-32 h-32 bg-slate-50 rounded-2xl border border-slate-200 p-2 flex items-center justify-center overflow-hidden">
+                            <img src={logoUrl} alt="Logo Preview" className="max-w-full max-h-full object-contain" />
+                          </div>
+                        )}
+                        <div className="relative">
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/png"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                const reader = new FileReader();
+                                reader.onloadend = () => {
+                                  onUpdateLogo(reader.result as string);
+                                };
+                                reader.readAsDataURL(file);
+                              }
+                            }}
+                            className="hidden"
+                            id="logo-upload"
+                          />
+                          <label 
+                            htmlFor="logo-upload"
+                            className="flex flex-col items-center justify-center w-full p-6 border-2 border-dashed border-slate-200 rounded-2xl hover:border-corporate-blue hover:bg-blue-50 transition-all cursor-pointer group"
+                          >
+                            <Upload className="text-slate-300 group-hover:text-corporate-blue mb-2" size={24} />
+                            <span className="text-sm font-bold text-slate-500 group-hover:text-corporate-blue">Clique para selecionar o logo</span>
+                            <span className="text-[10px] text-slate-400 mt-1 italic">baixe em jpeg e suba aqui</span>
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Ou cole a URL do Logo</label>
                       <input
                         type="text"
                         value={logoUrl}
                         onChange={(e) => onUpdateLogo(e.target.value)}
                         placeholder="https://exemplo.com/logo.png"
-                        className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:border-corporate-blue outline-none"
+                        className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:border-corporate-blue outline-none text-sm"
                       />
                     </div>
                   </div>
