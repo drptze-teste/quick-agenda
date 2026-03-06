@@ -139,6 +139,7 @@ export default function App() {
   const getScheduleKey = (date: string, proId: string) => `${date}::${proId}`;
 
   const selectedProfessional = professionals.find(p => p.id === selectedProfessionalId) || professionals[0];
+  const activeTimeList = selectedProfessional?.timeList || timeList;
   
   // Merge global config with professional config for the current view
   const proSlotConfig = {
@@ -151,7 +152,7 @@ export default function App() {
   const savedSlots = (schedules || {})[currentScheduleKey] || [];
 
   // Always build the schedule based on the current timeList to ensure updates reflect immediately
-  const currentSlots = timeList.map((time, index) => {
+  const currentSlots = activeTimeList.map((time, index) => {
     // Try to find a saved slot for this time
     const savedSlot = savedSlots.find(s => s.time === time);
     
@@ -251,14 +252,36 @@ export default function App() {
     }));
   };
 
-  const handleAddTime = (time: string) => {
-    if (!timeList.includes(time)) {
-      setTimeList(prev => [...prev, time].sort());
+  const handleAddTime = (time: string, proId?: string) => {
+    if (proId && proId !== 'global') {
+      setProfessionals(prev => prev.map(p => {
+        if (p.id === proId) {
+          const currentList = p.timeList || [...timeList];
+          if (!currentList.includes(time)) {
+            return { ...p, timeList: [...currentList, time].sort() };
+          }
+        }
+        return p;
+      }));
+    } else {
+      if (!timeList.includes(time)) {
+        setTimeList(prev => [...prev, time].sort());
+      }
     }
   };
 
-  const handleRemoveTime = (time: string) => {
-    setTimeList(prev => prev.filter(t => t !== time));
+  const handleRemoveTime = (time: string, proId?: string) => {
+    if (proId && proId !== 'global') {
+      setProfessionals(prev => prev.map(p => {
+        if (p.id === proId) {
+          const currentList = p.timeList || [...timeList];
+          return { ...p, timeList: currentList.filter(t => t !== time) };
+        }
+        return p;
+      }));
+    } else {
+      setTimeList(prev => prev.filter(t => t !== time));
+    }
   };
 
   const handleAddDate = (date: string) => {

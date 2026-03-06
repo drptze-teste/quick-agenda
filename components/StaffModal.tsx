@@ -21,8 +21,8 @@ interface StaffModalProps {
   onRemoveDate: (date: string) => void;
   // Time List Props
   timeList: string[];
-  onAddTime: (time: string) => void;
-  onRemoveTime: (time: string) => void;
+  onAddTime: (time: string, proId?: string) => void;
+  onRemoveTime: (time: string, proId?: string) => void;
   // Client Props
   logoUrl: string;
   onUpdateLogo: (url: string) => void;
@@ -82,7 +82,7 @@ const StaffModal: React.FC<StaffModalProps> = ({
   const handleAddTime = (e: React.FormEvent) => {
     e.preventDefault();
     if (newTime) {
-      onAddTime(newTime);
+      onAddTime(newTime, selectedProForConfig);
       setNewTime('');
     }
   };
@@ -242,50 +242,54 @@ const StaffModal: React.FC<StaffModalProps> = ({
                 </form>
                 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {timeList.map((time) => {
+                  {(() => {
                     const pro = professionals.find(p => p.id === selectedProForConfig);
-                    const currentType = selectedProForConfig === 'global' 
-                      ? (slotConfig[time] || 'available')
-                      : (pro?.slotConfig?.[time] || slotConfig[time] || 'available');
+                    const activeList = selectedProForConfig === 'global' ? timeList : (pro?.timeList || timeList);
+                    
+                    return activeList.map((time) => {
+                      const currentType = selectedProForConfig === 'global' 
+                        ? (slotConfig[time] || 'available')
+                        : (pro?.slotConfig?.[time] || slotConfig[time] || 'available');
 
-                    return (
-                      <div key={time} className="flex items-center justify-between p-2 border border-gray-200 rounded hover:bg-gray-50 group">
-                        <div className="flex items-center gap-2">
-                          <button 
-                            onClick={() => {
-                              if(confirm(`Remover o horário ${time}?`)) {
-                                onRemoveTime(time);
+                      return (
+                        <div key={time} className="flex items-center justify-between p-2 border border-gray-200 rounded hover:bg-gray-50 group">
+                          <div className="flex items-center gap-2">
+                            <button 
+                              onClick={() => {
+                                if(confirm(`Remover o horário ${time}?`)) {
+                                  onRemoveTime(time, selectedProForConfig);
+                                }
+                              }}
+                              className="text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                            <span className="font-mono font-bold text-gray-700">{time}</span>
+                          </div>
+                          <select
+                            value={currentType}
+                            onChange={(e) => {
+                              const newType = e.target.value as any;
+                              if (selectedProForConfig === 'global') {
+                                onUpdateSlotConfig(time, newType);
+                              } else {
+                                onUpdateProfessionalSlotConfig(selectedProForConfig, time, newType);
                               }
                             }}
-                            className="text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                            className={`text-sm rounded px-2 py-1 border outline-none cursor-pointer font-medium
+                              ${currentType === 'available' ? 'bg-white border-gray-300 text-gray-700' : ''}
+                              ${currentType === 'break' ? 'bg-yellow-100 border-yellow-300 text-yellow-800' : ''}
+                              ${currentType === 'lunch' ? 'bg-orange-100 border-orange-300 text-orange-800' : ''}
+                            `}
                           >
-                            <Trash2 size={14} />
-                          </button>
-                          <span className="font-mono font-bold text-gray-700">{time}</span>
+                            <option value="available">Atendimento</option>
+                            <option value="break">Intervalo</option>
+                            <option value="lunch">Almoço</option>
+                          </select>
                         </div>
-                        <select
-                          value={currentType}
-                          onChange={(e) => {
-                            const newType = e.target.value as any;
-                            if (selectedProForConfig === 'global') {
-                              onUpdateSlotConfig(time, newType);
-                            } else {
-                              onUpdateProfessionalSlotConfig(selectedProForConfig, time, newType);
-                            }
-                          }}
-                          className={`text-sm rounded px-2 py-1 border outline-none cursor-pointer font-medium
-                            ${currentType === 'available' ? 'bg-white border-gray-300 text-gray-700' : ''}
-                            ${currentType === 'break' ? 'bg-yellow-100 border-yellow-300 text-yellow-800' : ''}
-                            ${currentType === 'lunch' ? 'bg-orange-100 border-orange-300 text-orange-800' : ''}
-                          `}
-                        >
-                          <option value="available">Atendimento</option>
-                          <option value="break">Intervalo</option>
-                          <option value="lunch">Almoço</option>
-                        </select>
-                      </div>
-                    );
-                  })}
+                      );
+                    });
+                  })()}
                 </div>
               </div>
             )}
