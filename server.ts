@@ -2,16 +2,14 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import cors from 'cors';
 
-async function startServer() {
-  const app = express();
-  
-  // CORREÇÃO: Forçamos a conversão para número para evitar o erro de tipo no Google Cloud
-  const PORT = Number(process.env.PORT) || 3000;
+const app = express();
+const PORT = Number(process.env.PORT) || 3000;
 
-  app.use(cors());
-  app.use(express.json({ limit: '10mb' }));
+app.use(cors());
+app.use(express.json({ limit: '10mb' }));
 
-  // Vite middleware for development
+async function setupServer() {
+  // Configuração do Vite ou Arquivos Estáticos
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -20,16 +18,18 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     app.use(express.static("dist"));
-    // Handle SPA routing in production
     app.get("*", (req, res) => {
       res.sendFile("dist/index.html", { root: "." });
     });
   }
-
-  // O "0.0.0.0" permite que o tráfego externo chegue ao container do Google
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on port ${PORT}`);
-  });
 }
 
-startServer();
+// 🚀 A MÁGICA: Iniciamos o servidor IMEDIATAMENTE para o Google Cloud ver que estamos vivos
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`Server is live on port ${PORT}`);
+  
+  // Só depois que o servidor já "atendeu", carregamos o resto das configurações
+  setupServer().catch(err => {
+    console.error("Erro ao carregar configurações do servidor:", err);
+  });
+});
