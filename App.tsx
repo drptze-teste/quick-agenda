@@ -8,6 +8,8 @@ import BookingModal from './components/BookingModal';
 import BenesseLogo from './components/BenesseLogo';
 import StaffModal from './components/StaffModal';
 import { getScheduleSummary } from './services/geminiService';
+import { db } from './lib/firebase';
+import { doc, getDoc, setDoc, collection, getDocs, writeBatch } from 'firebase/firestore';
 
 export default function App() {
   // --- CONFIGURATION STATE ---
@@ -29,6 +31,7 @@ export default function App() {
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
   const [viewMode, setViewMode] = useState<'dashboard' | 'list'>('dashboard');
   const [summary, setSummary] = useState<string>("");
   const [isLoadingSummary, setIsLoadingSummary] = useState(false);
@@ -43,28 +46,48 @@ export default function App() {
   useEffect(() => {
     const loadData = async () => {
       try {
-        // 1. Try to load from Server
-        const response = await fetch('/api/data');
-        if (response.ok) {
-          const data = await response.json();
-          if (data.schedules && Object.keys(data.schedules).length > 0) {
-            setSchedules(data.schedules);
-            setSlotConfig(data.slotConfig || DEFAULT_SLOT_CONFIG);
-            setProfessionals(data.professionals.length > 0 ? data.professionals : [DEFAULT_PROFESSIONAL]);
-            setAvailableDates(data.availableDates.length > 0 ? data.availableDates : ['2026-01-01']);
-            setTimeList(data.timeList || TIME_LIST);
-            setLogoUrl(data.logoUrl || '');
-            setClientName(data.clientName || 'Cescon Barrieu');
-            setIsOnline(true);
-            
-            // Sync to local storage as backup
-            localStorage.setItem('benesse_data', JSON.stringify(data));
-          }
-        } else {
-          throw new Error('Server error');
+        setIsSyncing(true);
+        // 1. Fetch settings from Firestore
+        const settingsDoc = await getDoc(doc(db, 'settings', 'default'));
+        const settings = settingsDoc.exists() ? settingsDoc.data() : {};
+
+        // 2. Fetch professionals
+        const professionalsSnapshot = await getDocs(collection(db, 'professionals'));
+        const professionalsData = professionalsSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as Professional[];
+
+        // 3. Fetch schedules
+        const schedulesSnapshot = await getDocs(collection(db, 'schedules'));
+        const schedulesMap: Record<string, TimeSlot[]> = {};
+        schedulesSnapshot.docs.forEach(doc => {
+          schedulesMap[doc.id] = doc.data()?.slots;
+        });
+
+        if (Object.keys(schedulesMap).length > 0 || professionalsData.length > 0) {
+          setSchedules(schedulesMap);
+          setSlotConfig(settings?.slotConfig || DEFAULT_SLOT_CONFIG);
+          setProfessionals(professionalsData.length > 0 ? professionalsData : [DEFAULT_PROFESSIONAL]);
+          setAvailableDates(settings?.availableDates?.length > 0 ? settings.availableDates : ['2026-01-01']);
+          setTimeList(settings?.timeList || TIME_LIST);
+          setLogoUrl(settings?.logoUrl || '');
+          setClientName(settings?.clientName || 'Cescon Barrieu');
+          setIsOnline(true);
+          
+          // Sync to local storage as backup
+          localStorage.setItem('benesse_data', JSON.stringify({
+            schedules: schedulesMap,
+            slotConfig: settings?.slotConfig,
+            professionals: professionalsData,
+            availableDates: settings?.availableDates,
+            timeList: settings?.timeList,
+            logoUrl: settings?.logoUrl,
+            clientName: settings?.clientName
+          }));
         }
       } catch (error) {
-        console.warn('Could not load from server, trying localStorage...', error);
+        console.warn('Could not load from Firebase, trying localStorage...', error);
         setIsOnline(false);
         
         // 2. Fallback to LocalStorage
@@ -83,6 +106,7 @@ export default function App() {
         }
       } finally {
         isInitialLoad.current = false;
+        setIsSyncing(false);
       }
     };
 
@@ -107,21 +131,49 @@ export default function App() {
       // Always save to localStorage first (offline safety)
       localStorage.setItem('benesse_data', JSON.stringify(dataToSave));
 
-      // Try to sync with server
+      // Try to sync with Firebase
       try {
         setIsSyncing(true);
-        const response = await fetch('/api/save', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(dataToSave)
-        });
-        
-        if (response.ok) {
-          setIsOnline(true);
-        } else {
-          setIsOnline(false);
+        const batch = writeBatch(db);
+
+        // 1. Update Settings
+        const settingsRef = doc(db, 'settings', 'default');
+        batch.set(settingsRef, {
+          logoUrl: logoUrl || '',
+          clientName: clientName || 'Cescon Barrieu',
+          availableDates: availableDates || [],
+          timeList: timeList || [],
+          slotConfig: slotConfig || {},
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
+
+        // 2. Update Professionals
+        if (professionals && Array.isArray(professionals)) {
+          for (const pro of professionals) {
+            const proRef = doc(db, 'professionals', pro.id);
+            batch.set(proRef, {
+              name: pro.name,
+              slotConfig: pro.slotConfig || {},
+              timeList: pro.timeList || null
+            }, { merge: true });
+          }
         }
+
+        // 3. Update Schedules
+        if (schedules) {
+          for (const [key, slots] of Object.entries(schedules)) {
+            const scheduleRef = doc(db, 'schedules', key);
+            batch.set(scheduleRef, {
+              slots,
+              updatedAt: new Date().toISOString()
+            }, { merge: true });
+          }
+        }
+
+        await batch.commit();
+        setIsOnline(true);
       } catch (error) {
+        console.error('Firebase save error:', error);
         setIsOnline(false);
       } finally {
         setIsSyncing(false);
@@ -185,7 +237,42 @@ export default function App() {
   };
 
   const handleAdminClick = () => {
-    setIsStaffModalOpen(true);
+    if (isAdminAuthenticated) {
+      setIsStaffModalOpen(true);
+    } else {
+      const pass = prompt("Digite a senha de administrador:");
+      if (pass) {
+        handleLogin(pass).then(res => {
+          if (res.authenticated) {
+            setIsAdminAuthenticated(true);
+            setIsStaffModalOpen(true);
+          } else {
+            alert(res.message);
+          }
+        });
+      }
+    }
+  };
+
+  const handleLogin = async (password: string) => {
+    try {
+      const settingsDoc = await getDoc(doc(db, 'settings', 'default'));
+      const settings = settingsDoc.exists() ? settingsDoc.data() : {};
+      const dbPassword = settings?.adminPassword || 'admin123';
+
+      if (password === dbPassword) {
+        return { status: 'success', authenticated: true };
+      } else {
+        return { status: 'error', message: 'Senha incorreta' };
+      }
+    } catch (error) {
+      console.error('Login error:', error);
+      // Fallback
+      if (password === 'admin123') {
+        return { status: 'success', authenticated: true };
+      }
+      return { status: 'error', message: 'Erro ao conectar com o servidor' };
+    }
   };
 
   const handleBooking = (name: string) => {
