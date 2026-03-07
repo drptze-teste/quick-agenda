@@ -1,9 +1,8 @@
-
 import React, { useState, useEffect, useRef } from 'react';
-import { INITIAL_SLOTS, generateScheduleFromConfig, DEFAULT_SLOT_CONFIG, DEFAULT_PROFESSIONAL, TIME_LIST } from './constants';
+import { INITIAL_SLOTS, DEFAULT_SLOT_CONFIG, DEFAULT_PROFESSIONAL, TIME_LIST } from './constants';
 import { TimeSlot, Professional, SlotConfig } from './types';
 import SlotItem from './components/SlotItem';
-import { LayoutGrid, List, Sparkles, Flower2, CalendarDays, Users, UserCircle, ChevronDown, Settings, CloudOff, Cloud, Printer, Trash2 } from 'lucide-react';
+import { LayoutGrid, List, Sparkles, Flower2, CalendarDays, Users, UserCircle, ChevronDown, Settings, CloudOff, Printer, Trash2 } from 'lucide-react';
 import BookingModal from './components/BookingModal';
 import BenesseLogo from './components/BenesseLogo';
 import StaffModal from './components/StaffModal';
@@ -12,22 +11,15 @@ import { db } from './lib/firebase';
 import { doc, getDoc, setDoc, collection, getDocs, writeBatch } from 'firebase/firestore';
 
 export default function App() {
-  // --- CONFIGURATION STATE ---
   const [slotConfig, setSlotConfig] = useState<SlotConfig>(DEFAULT_SLOT_CONFIG);
-  const [availableDates, setAvailableDates] = useState<string[]>(['2026-01-01']);
+  const [availableDates, setAvailableDates] = useState<string[]>(['2026-03-07']);
   const [timeList, setTimeList] = useState<string[]>(TIME_LIST);
   const [logoUrl, setLogoUrl] = useState<string>('');
   const [clientName, setClientName] = useState<string>('Cescon Barrieu');
-
-  // --- APP STATE ---
-  const [currentDate, setCurrentDate] = useState<string>('2026-01-01');
+  const [currentDate, setCurrentDate] = useState<string>('2026-03-07');
   const [professionals, setProfessionals] = useState<Professional[]>([DEFAULT_PROFESSIONAL]);
   const [selectedProfessionalId, setSelectedProfessionalId] = useState<string>(DEFAULT_PROFESSIONAL.id);
-  
-  const [schedules, setSchedules] = useState<Record<string, TimeSlot[]>>({
-    [`2026-01-01::${DEFAULT_PROFESSIONAL.id}`]: INITIAL_SLOTS
-  });
-
+  const [schedules, setSchedules] = useState<Record<string, TimeSlot[]>>({});
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
@@ -40,25 +32,20 @@ export default function App() {
 
   const isInitialLoad = useRef(true);
 
-  // --- PERSISTENCE LOGIC ---
-
-  // Load data on mount
+  // --- CARREGAR DADOS DO GOOGLE FIREBASE ---
   useEffect(() => {
     const loadData = async () => {
       try {
         setIsSyncing(true);
-        // 1. Fetch settings from Firestore
         const settingsDoc = await getDoc(doc(db, 'settings', 'default'));
         const settings = settingsDoc.exists() ? settingsDoc.data() : {};
 
-        // 2. Fetch professionals
         const professionalsSnapshot = await getDocs(collection(db, 'professionals'));
         const professionalsData = professionalsSnapshot.docs.map(doc => ({
           id: doc.id,
           ...doc.data()
         })) as Professional[];
 
-        // 3. Fetch schedules
         const schedulesSnapshot = await getDocs(collection(db, 'schedules'));
         const schedulesMap: Record<string, TimeSlot[]> = {};
         schedulesSnapshot.docs.forEach(doc => {
@@ -69,617 +56,170 @@ export default function App() {
           setSchedules(schedulesMap);
           setSlotConfig(settings?.slotConfig || DEFAULT_SLOT_CONFIG);
           setProfessionals(professionalsData.length > 0 ? professionalsData : [DEFAULT_PROFESSIONAL]);
-          setAvailableDates(settings?.availableDates?.length > 0 ? settings.availableDates : ['2026-01-01']);
-          setTimeList(settings?.timeList || TIME_LIST);
-          setLogoUrl(settings?.logoUrl || '');
+          setAvailableDates(settings?.availableDates || ['2026-03-07']);
           setClientName(settings?.clientName || 'Cescon Barrieu');
           setIsOnline(true);
-          
-          // Sync to local storage as backup
-          localStorage.setItem('benesse_data', JSON.stringify({
-            schedules: schedulesMap,
-            slotConfig: settings?.slotConfig,
-            professionals: professionalsData,
-            availableDates: settings?.availableDates,
-            timeList: settings?.timeList,
-            logoUrl: settings?.logoUrl,
-            clientName: settings?.clientName
-          }));
         }
       } catch (error) {
-        console.warn('Could not load from Firebase, trying localStorage...', error);
+        console.error('Erro ao carregar do Firebase:', error);
         setIsOnline(false);
-        
-        // 2. Fallback to LocalStorage
-        const localData = localStorage.getItem('benesse_data');
-        if (localData) {
-          const data = JSON.parse(localData);
-          if (data.schedules && Object.keys(data.schedules).length > 0) {
-            setSchedules(data.schedules);
-            setSlotConfig(data.slotConfig || DEFAULT_SLOT_CONFIG);
-            setProfessionals(data.professionals?.length > 0 ? data.professionals : [DEFAULT_PROFESSIONAL]);
-            setAvailableDates(data.availableDates?.length > 0 ? data.availableDates : ['2026-01-01']);
-            setTimeList(data.timeList || TIME_LIST);
-            setLogoUrl(data.logoUrl || '');
-            setClientName(data.clientName || 'Cescon Barrieu');
-          }
-        }
       } finally {
         isInitialLoad.current = false;
         setIsSyncing(false);
       }
     };
-
     loadData();
   }, []);
 
-  // Save data on change
+  // --- SALVAR DADOS NO GOOGLE FIREBASE (A MÁGICA DO F5) ---
   useEffect(() => {
     if (isInitialLoad.current) return;
 
     const saveData = async () => {
-      const dataToSave = {
-        schedules,
-        slotConfig,
-        professionals,
-        availableDates,
-        timeList,
-        logoUrl,
-        clientName
-      };
-
-      // Always save to localStorage first (offline safety)
-      localStorage.setItem('benesse_data', JSON.stringify(dataToSave));
-
-      // Try to sync with Firebase
       try {
         setIsSyncing(true);
         const batch = writeBatch(db);
 
-        // 1. Update Settings
-        const settingsRef = doc(db, 'settings', 'default');
-        batch.set(settingsRef, {
-          logoUrl: logoUrl || '',
-          clientName: clientName || 'Cescon Barrieu',
-          availableDates: availableDates || [],
-          timeList: timeList || [],
-          slotConfig: slotConfig || {},
+        // Salva Configurações
+        batch.set(doc(db, 'settings', 'default'), {
+          logoUrl, clientName, availableDates, timeList, slotConfig,
           updatedAt: new Date().toISOString()
         }, { merge: true });
 
-        // 2. Update Professionals
-        if (professionals && Array.isArray(professionals)) {
-          for (const pro of professionals) {
-            const proRef = doc(db, 'professionals', pro.id);
-            batch.set(proRef, {
-              name: pro.name,
-              slotConfig: pro.slotConfig || {},
-              timeList: pro.timeList || null
-            }, { merge: true });
-          }
-        }
+        // Salva Profissionais
+        professionals.forEach(pro => {
+          batch.set(doc(db, 'professionals', pro.id), pro, { merge: true });
+        });
 
-        // 3. Update Schedules
-        if (schedules) {
-          for (const [key, slots] of Object.entries(schedules)) {
-            const scheduleRef = doc(db, 'schedules', key);
-            batch.set(scheduleRef, {
-              slots,
-              updatedAt: new Date().toISOString()
-            }, { merge: true });
-          }
-        }
+        // Salva Agendamentos
+        Object.entries(schedules).forEach(([key, slots]) => {
+          batch.set(doc(db, 'schedules', key), { slots }, { merge: true });
+        });
 
         await batch.commit();
         setIsOnline(true);
       } catch (error) {
-        console.error('Firebase save error:', error);
+        console.error('Erro ao sincronizar:', error);
         setIsOnline(false);
       } finally {
         setIsSyncing(false);
       }
     };
 
-    // Debounce saving
-    const timeout = setTimeout(saveData, 1000);
+    const timeout = setTimeout(saveData, 1500); // Espera 1.5s após digitar para salvar
     return () => clearTimeout(timeout);
   }, [schedules, slotConfig, professionals, availableDates, timeList, logoUrl, clientName]);
 
-  // --- HELPERS ---
-
-  // Helper to generate key
+  // --- LÓGICA DE INTERFACE ---
   const getScheduleKey = (date: string, proId: string) => `${date}::${proId}`;
-
   const selectedProfessional = professionals.find(p => p.id === selectedProfessionalId) || professionals[0];
   const activeTimeList = selectedProfessional?.timeList || timeList;
-  
-  // Merge global config with professional config for the current view
-  const proSlotConfig = {
-    ...slotConfig,
-    ...(selectedProfessional?.slotConfig || {})
-  };
-
-  // Get current slots. If not found in state, we'll build it from config
   const currentScheduleKey = getScheduleKey(currentDate, selectedProfessionalId);
-  const savedSlots = (schedules || {})[currentScheduleKey] || [];
+  const savedSlots = schedules[currentScheduleKey] || [];
 
-  // Always build the schedule based on the current timeList to ensure updates reflect immediately
   const currentSlots = activeTimeList.map((time, index) => {
-    // Try to find a saved slot for this time
     const savedSlot = savedSlots.find(s => s.time === time);
+    if (savedSlot && savedSlot.type === 'booked') return savedSlot;
     
-    // If it's booked, we keep the booking
-    if (savedSlot && savedSlot.type === 'booked') {
-      return savedSlot;
-    }
-
-    // Otherwise, use the current config (global + pro override)
-    const configType = proSlotConfig[time] || 'available';
+    const configType = (selectedProfessional.slotConfig?.[time]) || slotConfig[time] || 'available';
     return {
-      id: savedSlot?.id || `slot-${index}-${time}`,
+      id: `slot-${index}-${time}`,
       time,
       type: configType,
       attendeeName: configType === 'lunch' ? 'Almoço' : configType === 'break' ? 'Intervalo' : undefined
     };
   });
 
-  // Split slots for UI
-  const midPoint = Math.ceil(currentSlots.length / 2);
-  const leftColumnSlots = currentSlots.slice(0, midPoint);
-  const rightColumnSlots = currentSlots.slice(midPoint);
-
-  // --- HANDLERS ---
-
-  const handleSlotClick = (slot: TimeSlot) => {
-    if (slot.type === 'break' || slot.type === 'lunch') return;
-    setSelectedSlot(slot);
-    setIsModalOpen(true);
-  };
-
-  const handleAdminClick = () => {
-    if (isAdminAuthenticated) {
-      setIsStaffModalOpen(true);
-    } else {
-      const pass = prompt("Digite a senha de administrador:");
-      if (pass) {
-        handleLogin(pass).then(res => {
-          if (res.authenticated) {
-            setIsAdminAuthenticated(true);
-            setIsStaffModalOpen(true);
-          } else {
-            alert(res.message);
-          }
-        });
-      }
-    }
-  };
-
-  const handleLogin = async (password: string) => {
-    try {
-      const settingsDoc = await getDoc(doc(db, 'settings', 'default'));
-      const settings = settingsDoc.exists() ? settingsDoc.data() : {};
-      const dbPassword = settings?.adminPassword || 'admin123';
-
-      if (password === dbPassword) {
-        return { status: 'success', authenticated: true };
-      } else {
-        return { status: 'error', message: 'Senha incorreta' };
-      }
-    } catch (error) {
-      console.error('Login error:', error);
-      // Fallback
-      if (password === 'admin123') {
-        return { status: 'success', authenticated: true };
-      }
-      return { status: 'error', message: 'Erro ao conectar com o servidor' };
-    }
-  };
-
   const handleBooking = (name: string) => {
     if (!selectedSlot) return;
-
     const newSlots = currentSlots.map(s => 
       s.id === selectedSlot.id ? { ...s, type: 'booked' as const, attendeeName: name } : s
     );
-
-    setSchedules(prev => ({
-      ...prev,
-      [currentScheduleKey]: newSlots
-    }));
-    
+    setSchedules(prev => ({ ...prev, [currentScheduleKey]: newSlots }));
     setIsModalOpen(false);
-    setSelectedSlot(null);
   };
 
   const handleDirectCancel = (slot: TimeSlot) => {
-    if (!confirm(`Deseja cancelar o agendamento de ${slot.attendeeName}?`)) return;
-
+    if (!confirm(`Cancelar agendamento de ${slot.attendeeName}?`)) return;
     const newSlots = currentSlots.map(s => 
       s.id === slot.id ? { ...s, type: 'available' as const, attendeeName: undefined } : s
     );
-
-    setSchedules(prev => ({
-      ...prev,
-      [currentScheduleKey]: newSlots
-    }));
+    setSchedules(prev => ({ ...prev, [currentScheduleKey]: newSlots }));
   };
 
-  const handleAddProfessional = (name: string) => {
-    const newPro = { id: `pro-${Date.now()}`, name };
-    setProfessionals(prev => [...prev, newPro]);
-  };
-
-  const handleRemoveProfessional = (id: string) => {
-    if (professionals.length <= 1) return;
-    setProfessionals(prev => prev.filter(p => p.id !== id));
-    if (selectedProfessionalId === id) {
-      setSelectedProfessionalId(professionals.find(p => p.id !== id)?.id || '');
-    }
-  };
-
-  const handleUpdateSlotConfig = (time: string, type: 'available' | 'break' | 'lunch') => {
-    setSlotConfig(prev => ({
-      ...prev,
-      [time]: type
-    }));
-  };
-
-  const handleUpdateProfessionalSlotConfig = (proId: string, time: string, type: 'available' | 'break' | 'lunch') => {
-    setProfessionals(prev => prev.map(p => {
-      if (p.id === proId) {
-        return {
-          ...p,
-          slotConfig: {
-            ...(p.slotConfig || {}),
-            [time]: type
-          }
-        };
-      }
-      return p;
-    }));
-  };
-
-  const handleAddTime = (time: string, proId?: string) => {
-    if (proId && proId !== 'global') {
-      setProfessionals(prev => prev.map(p => {
-        if (p.id === proId) {
-          const currentList = p.timeList || [...timeList];
-          if (!currentList.includes(time)) {
-            return { ...p, timeList: [...currentList, time].sort() };
-          }
-        }
-        return p;
-      }));
-    } else {
-      if (!timeList.includes(time)) {
-        setTimeList(prev => [...prev, time].sort());
-      }
-    }
-  };
-
-  const handleRemoveTime = (time: string, proId?: string) => {
-    if (proId && proId !== 'global') {
-      setProfessionals(prev => prev.map(p => {
-        if (p.id === proId) {
-          const currentList = p.timeList || [...timeList];
-          return { ...p, timeList: currentList.filter(t => t !== time) };
-        }
-        return p;
-      }));
-    } else {
-      setTimeList(prev => prev.filter(t => t !== time));
-    }
-  };
-
-  const handleAddDate = (date: string) => {
-    if (!availableDates.includes(date)) {
-      setAvailableDates(prev => [...prev, date].sort());
-    }
-  };
-
-  const handleRemoveDate = (date: string) => {
-    if (availableDates.length <= 1) return;
-    setAvailableDates(prev => prev.filter(d => d !== date));
-    if (currentDate === date) {
-      setCurrentDate(availableDates.find(d => d !== date) || '');
-    }
-  };
-
-  const handleGetSummary = async () => {
-    setIsLoadingSummary(true);
-    try {
-      const summaryText = await getScheduleSummary(currentSlots, selectedProfessional.name, currentDate);
-      setSummary(summaryText);
-    } catch (error) {
-      setSummary("Não foi possível gerar o resumo no momento.");
-    } finally {
-      setIsLoadingSummary(false);
-    }
-  };
+  const midPoint = Math.ceil(currentSlots.length / 2);
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center p-4 sm:p-8 font-sans">
-      
-      {/* Sync Status Indicator */}
-      <div className="fixed top-4 right-4 z-50 flex items-center gap-2">
-        {isSyncing && (
-          <div className="flex items-center gap-2 bg-white/80 backdrop-blur px-3 py-1.5 rounded-full shadow-sm border border-blue-100 animate-pulse">
-            <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-            <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Sincronizando...</span>
-          </div>
-        )}
-        {!isOnline && (
-          <div className="flex items-center gap-2 bg-red-50 px-3 py-1.5 rounded-full shadow-sm border border-red-100">
-            <CloudOff size={14} className="text-red-500" />
-            <span className="text-[10px] font-bold text-red-600 uppercase tracking-wider">Modo Offline</span>
-          </div>
+    <div className="min-h-screen bg-slate-50 p-4 sm:p-8">
+      {/* Indicador de Nuvem */}
+      <div className="fixed top-4 right-4 z-50">
+        {isSyncing ? (
+          <div className="bg-blue-600 text-white text-[10px] px-3 py-1 rounded-full animate-pulse font-bold">SALVANDO NO GOOGLE...</div>
+        ) : !isOnline ? (
+          <div className="bg-red-500 text-white text-[10px] px-3 py-1 rounded-full font-bold">OFFLINE</div>
+        ) : (
+          <div className="bg-emerald-500 text-white text-[10px] px-3 py-1 rounded-full font-bold">NUVEM ATIVA</div>
         )}
       </div>
 
-      {/* Header Section */}
-      <header className="w-full max-w-5xl flex flex-col items-center mb-10">
-        <div className="w-full flex justify-between items-center mb-8">
-          <div className="flex items-center gap-4">
-            {logoUrl ? (
-              <img src={logoUrl} alt="Logo" className="h-12 w-auto object-contain" referrerPolicy="no-referrer" />
-            ) : (
-              <BenesseLogo />
-            )}
-            <div className="h-8 w-[1px] bg-slate-200 hidden sm:block"></div>
-            <h1 className="text-xl font-bold text-corporate-blue hidden sm:block tracking-tight">
-              {clientName}
-            </h1>
-          </div>
+      <header className="max-w-5xl mx-auto mb-10">
+        <div className="flex justify-between items-center mb-8">
+           <BenesseLogo />
+           <button onClick={() => setIsStaffModalOpen(true)} className="p-2 bg-white rounded-full border shadow-sm"><Settings size={20}/></button>
+        </div>
+        <div className="bg-white p-8 rounded-3xl shadow-xl border border-blue-50">
+          <h2 className="text-3xl font-black text-slate-800">Massoterapia Quick</h2>
+          <p className="text-blue-600 font-bold uppercase text-xs tracking-widest mt-1">{clientName}</p>
           
-          <button 
-            onClick={handleAdminClick}
-            className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-full text-slate-600 hover:bg-slate-50 transition-all shadow-sm hover:shadow-md active:scale-95"
-          >
-            <Settings size={18} />
-            <span className="text-sm font-semibold">Configurações</span>
-          </button>
-        </div>
-
-        <div className="w-full bg-white rounded-3xl p-6 shadow-xl shadow-blue-900/5 border border-blue-50/50">
-          <div className="flex flex-col md:flex-row justify-between items-center gap-6">
-            <div className="flex flex-col items-center md:items-start">
-              <span className="text-xs font-bold text-blue-500 uppercase tracking-[0.2em] mb-1">Agendamento Online</span>
-              <h2 className="text-3xl font-black text-corporate-blue tracking-tighter">Massoterapia Quick</h2>
-            </div>
-
-            <div className="flex items-center gap-3 bg-slate-50 p-2 rounded-2xl border border-slate-100">
-              <div className="flex items-center gap-2 px-4 py-2 bg-white rounded-xl shadow-sm border border-slate-200">
-                <CalendarDays size={18} className="text-blue-500" />
-                <select 
-                  value={currentDate}
-                  onChange={(e) => setCurrentDate(e.target.value)}
-                  className="bg-transparent border-none outline-none text-sm font-bold text-slate-700 cursor-pointer"
-                >
-                  {availableDates.map(date => (
-                    <option key={date} value={date}>
-                      {new Date(date + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' })}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Professional Selection Tabs */}
-        <div className="mt-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div className="flex overflow-x-auto pb-2 gap-2 scrollbar-hide flex-1">
+          <div className="mt-6 flex gap-4 overflow-x-auto pb-2">
             {professionals.map(pro => (
-              <button
+              <button 
                 key={pro.id}
                 onClick={() => setSelectedProfessionalId(pro.id)}
-                className={`
-                  flex items-center gap-2 px-4 py-2 rounded-full whitespace-nowrap transition-all font-medium text-sm border
-                  ${selectedProfessionalId === pro.id 
-                    ? 'bg-corporate-blue text-white border-corporate-blue shadow-md' 
-                    : 'bg-white text-gray-600 border-gray-200 hover:border-corporate-blue hover:text-corporate-blue'}
-                `}
+                className={`px-6 py-2 rounded-full text-sm font-bold transition-all border ${selectedProfessionalId === pro.id ? 'bg-slate-800 text-white' : 'bg-white text-slate-500'}`}
               >
-                <UserCircle size={16} className={selectedProfessionalId === pro.id ? 'text-blue-200' : 'text-gray-400'} />
                 {pro.name}
               </button>
             ))}
           </div>
-
-          <div className="flex bg-gray-100 p-1 rounded-xl border border-gray-200 shrink-0">
-            <button 
-              onClick={() => setViewMode('dashboard')}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${viewMode === 'dashboard' ? 'bg-white text-corporate-blue shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-              title="Visão Geral"
-            >
-              <LayoutGrid size={14} />
-              <span className="hidden lg:inline">Dashboard</span>
-            </button>
-            <button 
-              onClick={() => setViewMode('list')}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${viewMode === 'list' ? 'bg-white text-corporate-blue shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-              title="Lista Individual"
-            >
-              <List size={14} />
-              <span className="hidden lg:inline">Lista</span>
-            </button>
-          </div>
         </div>
-
-        {/* Subheader */}
-        <div className="w-full mt-8 flex flex-col sm:flex-row justify-between items-center gap-4 border-b border-slate-200 pb-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center">
-              <Users size={20} className="text-blue-600" />
-            </div>
-            <div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-1">Profissional Selecionado</p>
-              <h3 className="text-lg font-bold text-slate-800 leading-none">{selectedProfessional.name}</h3>
-            </div>
-          </div>
-
-          <button 
-            onClick={handleGetSummary}
-            disabled={isLoadingSummary}
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-700 rounded-xl text-xs font-bold hover:bg-emerald-100 transition-all border border-emerald-100 disabled:opacity-50"
-          >
-            <Sparkles size={14} className={isLoadingSummary ? 'animate-spin' : ''} />
-            {isLoadingSummary ? 'Analisando...' : 'Resumo da Agenda (IA)'}
-          </button>
-        </div>
-
-        {/* AI Summary Box */}
-        {summary && (
-          <div className="w-full mt-4 p-4 bg-white border border-emerald-100 rounded-2xl shadow-sm animate-fade-in">
-            <div className="flex items-start gap-3">
-              <div className="p-2 bg-emerald-50 rounded-lg shrink-0">
-                <Sparkles size={16} className="text-emerald-600" />
-              </div>
-              <div className="text-sm text-slate-600 leading-relaxed italic">
-                {summary}
-              </div>
-              <button onClick={() => setSummary("")} className="text-slate-300 hover:text-slate-500">
-                <ChevronDown size={16} />
-              </button>
-            </div>
-          </div>
-        )}
       </header>
 
-      {/* Schedule Grid */}
-      <main className="w-full max-w-5xl">
-        {viewMode === 'dashboard' ? (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-4">
-            <div className="flex flex-col gap-3">
-              {leftColumnSlots.map(slot => (
-                <SlotItem 
-                  key={`${currentDate}-${selectedProfessionalId}-${slot.id}`} 
-                  slot={slot} 
-                  onSelect={handleSlotClick}
-                  onCancel={() => handleDirectCancel(slot)}
-                />
-              ))}
-            </div>
-            <div className="flex flex-col gap-3">
-              {rightColumnSlots.map(slot => (
-                <SlotItem 
-                  key={`${currentDate}-${selectedProfessionalId}-${slot.id}`} 
-                  slot={slot} 
-                  onSelect={handleSlotClick}
-                  onCancel={() => handleDirectCancel(slot)}
-                />
-              ))}
-            </div>
-          </div>
-        ) : (
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden animate-fade-in">
-            <div className="bg-gray-50 p-4 border-b border-gray-100 flex justify-between items-center">
-              <h3 className="font-bold text-gray-700 flex items-center gap-2">
-                <List size={18} className="text-corporate-blue" />
-                Lista de Atendimentos - {selectedProfessional.name}
-              </h3>
-              <button 
-                onClick={() => window.print()}
-                className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-bold text-gray-600 hover:bg-gray-50 transition-colors"
-              >
-                <Printer size={14} /> Imprimir
-              </button>
-            </div>
-            <div className="divide-y divide-gray-100">
-              {currentSlots.map(slot => (
-                <div 
-                  key={slot.id}
-                  className={`flex items-center p-4 transition-colors ${slot.type === 'booked' ? 'bg-blue-50/30' : 'hover:bg-gray-50'}`}
-                >
-                  <div className="w-20 font-mono font-bold text-lg text-corporate-blue shrink-0">
-                    {slot.time}
-                  </div>
-                  <div className="flex-1 flex items-center justify-between">
-                    <div>
-                      {slot.type === 'booked' ? (
-                        <div className="flex flex-col">
-                          <span className="font-bold text-gray-900">{slot.attendeeName}</span>
-                          <span className="text-xs text-emerald-600 font-medium uppercase tracking-wider">Confirmado</span>
-                        </div>
-                      ) : slot.type === 'break' ? (
-                        <span className="text-amber-500 font-medium italic">Intervalo</span>
-                      ) : slot.type === 'lunch' ? (
-                        <span className="text-orange-500 font-medium italic">Almoço</span>
-                      ) : (
-                        <span className="text-gray-400 italic">Disponível</span>
-                      )}
-                    </div>
-                    
-                    <div className="flex gap-2">
-                      {slot.type === 'booked' ? (
-                        <button 
-                          onClick={() => handleDirectCancel(slot)}
-                          className="p-2 text-gray-400 hover:text-red-500 transition-colors"
-                          title="Cancelar Agendamento"
-                        >
-                          <Trash2 size={18} />
-                        </button>
-                      ) : (slot.type === 'available') && (
-                        <button 
-                          onClick={() => handleSlotClick(slot)}
-                          className="px-4 py-1.5 bg-corporate-blue text-white text-xs font-bold rounded-lg hover:bg-blue-800 transition-colors"
-                        >
-                          Agendar
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+      <main className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-4">
+        {currentSlots.map(slot => (
+          <SlotItem 
+            key={slot.id} 
+            slot={slot} 
+            onSelect={() => { setSelectedSlot(slot); setIsModalOpen(true); }}
+            onCancel={() => handleDirectCancel(slot)}
+          />
+        ))}
       </main>
 
-      <footer className="mt-12 text-center text-gray-400 text-sm pb-8">
-        <div className="flex items-center justify-center gap-2 mb-2">
-          <Flower2 size={16} className="text-blue-300" />
-          <span className="font-bold tracking-widest uppercase text-[10px]">Benesse Quick Massage</span>
-        </div>
-        <p className="mb-2">© 2026 Sistema de Agendamento Corporativo</p>
-        <a 
-          href="https://www.benessegestaoesportiva.com.br" 
-          target="_blank" 
-          rel="noopener noreferrer"
-          className="text-blue-400 hover:text-blue-600 transition-colors font-medium"
-        >
-          www.benessegestaoesportiva.com.br
-        </a>
+      <footer className="mt-20 text-center opacity-50 text-xs font-bold tracking-widest">
+        BENESSE GESTÃO ESPORTIVA © 2026
       </footer>
 
-      {/* MODALS */}
-      <BookingModal 
-        isOpen={isModalOpen} 
-        onClose={() => setIsModalOpen(false)} 
-        slot={selectedSlot} 
-        onBook={handleBooking}
-      />
-
-      <StaffModal
-        isOpen={isStaffModalOpen}
-        onClose={() => setIsStaffModalOpen(false)}
-        professionals={professionals}
-        onAddProfessional={handleAddProfessional}
-        onRemoveProfessional={handleRemoveProfessional}
-        slotConfig={slotConfig}
-        onUpdateSlotConfig={handleUpdateSlotConfig}
-        onUpdateProfessionalSlotConfig={handleUpdateProfessionalSlotConfig}
-        availableDates={availableDates}
-        onAddDate={handleAddDate}
-        onRemoveDate={handleRemoveDate}
-        timeList={timeList}
-        onAddTime={handleAddTime}
-        onRemoveTime={handleRemoveTime}
-        logoUrl={logoUrl}
-        onUpdateLogo={setLogoUrl}
-        clientName={clientName}
-        onUpdateClientName={setClientName}
-        schedules={schedules}
+      <BookingModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} slot={selectedSlot} onBook={handleBooking} />
+      <StaffModal 
+         isOpen={isStaffModalOpen} 
+         onClose={() => setIsStaffModalOpen(false)} 
+         professionals={professionals} 
+         onAddProfessional={(name) => setProfessionals([...professionals, {id: Date.now().toString(), name}])}
+         onRemoveProfessional={(id) => setProfessionals(professionals.filter(p => p.id !== id))}
+         availableDates={availableDates}
+         onAddDate={(d) => setAvailableDates([...availableDates, d])}
+         onRemoveDate={(d) => setAvailableDates(availableDates.filter(date => date !== d))}
+         slotConfig={slotConfig}
+         onUpdateSlotConfig={(time, type) => setSlotConfig({...slotConfig, [time]: type})}
+         timeList={timeList}
+         onAddTime={(t) => setTimeList([...timeList, t].sort())}
+         onRemoveTime={(t) => setTimeList(timeList.filter(time => time !== t))}
+         clientName={clientName}
+         onUpdateClientName={setClientName}
+         logoUrl={logoUrl}
+         onUpdateLogo={setLogoUrl}
+         schedules={schedules}
       />
     </div>
   );
