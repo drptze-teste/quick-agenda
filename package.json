@@ -1,15 +1,12 @@
 {
-  "name": "planilha-quick-cescon",
+  "name": "agenda-quick-benesse",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx server.ts",
-    "build": "vite build",
-    "start": "NODE_ENV=production tsx server.ts",
-    "preview": "vite preview",
-    "lint": "tsc --noEmit",
-    "deploy": "npm run build && firebase deploy"
+    "dev": "vite",
+    "build": "vite build && tsc server.ts --outDir dist --module esnext --moduleResolution node --target es2022 --esModuleInterop",
+    "start": "node dist/server.js"
   },
   "dependencies": {
     "@google/genai": "^1.30.0",
