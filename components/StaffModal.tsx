@@ -23,11 +23,16 @@ interface StaffModalProps {
   timeList: string[];
   onAddTime: (time: string, proId?: string) => void;
   onRemoveTime: (time: string, proId?: string) => void;
+  onResetToGlobal: (proId: string, type: 'timeList' | 'slotConfig') => void;
+  onClearSchedules: () => void;
   // Client Props
   logoUrl: string;
   onUpdateLogo: (url: string) => void;
   clientName: string;
   onUpdateClientName: (name: string) => void;
+  // Security Props
+  adminPassword?: string;
+  onUpdateAdminPassword?: (pass: string) => void;
   // Reports Props
   schedules: Record<string, TimeSlot[]>;
 }
@@ -49,10 +54,14 @@ const StaffModal: React.FC<StaffModalProps> = ({
   timeList,
   onAddTime,
   onRemoveTime,
+  onResetToGlobal,
+  onClearSchedules,
   logoUrl,
   onUpdateLogo,
   clientName,
   onUpdateClientName,
+  adminPassword,
+  onUpdateAdminPassword,
   schedules
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>('staff');
@@ -60,6 +69,8 @@ const StaffModal: React.FC<StaffModalProps> = ({
   const [newDate, setNewDate] = useState('');
   const [newTime, setNewTime] = useState('');
   const [selectedProForConfig, setSelectedProForConfig] = useState<string>('global');
+  const [confirmDeleteTime, setConfirmDeleteTime] = useState<string | null>(null);
+  const [confirmClearAll, setConfirmClearAll] = useState(false);
 
   if (!isOpen) return null;
 
@@ -222,75 +233,120 @@ const StaffModal: React.FC<StaffModalProps> = ({
                       ))}
                     </select>
                   </div>
+
+                  {selectedProForConfig !== 'global' && (
+                    <div className="flex gap-4 mt-2 px-1">
+                      <button 
+                        onClick={() => onResetToGlobal(selectedProForConfig, 'timeList')}
+                        className="text-[10px] font-bold text-blue-600 uppercase tracking-wider hover:text-blue-800 transition-colors"
+                      >
+                        Resetar Horários para Global
+                      </button>
+                      <div className="w-[1px] h-3 bg-blue-200"></div>
+                      <button 
+                        onClick={() => onResetToGlobal(selectedProForConfig, 'slotConfig')}
+                        className="text-[10px] font-bold text-blue-600 uppercase tracking-wider hover:text-blue-800 transition-colors"
+                      >
+                        Resetar Pausas para Global
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Add New Time Form */}
-                <form onSubmit={handleAddTime} className="mb-6 flex gap-2">
-                  <input
-                    type="time"
-                    value={newTime}
-                    onChange={(e) => setNewTime(e.target.value)}
-                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-corporate-blue outline-none"
-                  />
-                  <button 
-                    type="submit"
-                    disabled={!newTime || timeList.includes(newTime)}
-                    className="bg-corporate-blue text-white px-4 py-2 rounded-lg hover:bg-blue-800 disabled:opacity-50 flex items-center gap-2"
-                  >
-                    <Plus size={20} /> <span className="text-sm">Novo Horário</span>
-                  </button>
-                </form>
-                
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {(() => {
-                    const pro = professionals.find(p => p.id === selectedProForConfig);
-                    const activeList = selectedProForConfig === 'global' ? timeList : (pro?.timeList || timeList);
-                    
-                    return activeList.map((time) => {
-                      const currentType = selectedProForConfig === 'global' 
-                        ? (slotConfig[time] || 'available')
-                        : (pro?.slotConfig?.[time] || slotConfig[time] || 'available');
+                {(() => {
+                  const pro = professionals.find(p => p.id === selectedProForConfig);
+                  const activeList = selectedProForConfig === 'global' ? timeList : (pro?.timeList || timeList);
+                  
+                  return (
+                    <>
+                      <form onSubmit={handleAddTime} className="mb-6 flex gap-2">
+                        <input
+                          type="time"
+                          value={newTime}
+                          onChange={(e) => setNewTime(e.target.value)}
+                          className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-corporate-blue outline-none"
+                        />
+                        <button 
+                          type="submit"
+                          disabled={!newTime || activeList.includes(newTime)}
+                          className="bg-corporate-blue text-white px-4 py-2 rounded-lg hover:bg-blue-800 disabled:opacity-50 flex items-center gap-2"
+                        >
+                          <Plus size={20} /> <span className="text-sm">Novo Horário</span>
+                        </button>
+                      </form>
+                      
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {activeList.map((time) => {
+                          const currentType = selectedProForConfig === 'global' 
+                            ? (slotConfig[time] || 'available')
+                            : (pro?.slotConfig?.[time] || slotConfig[time] || 'available');
 
-                      return (
-                        <div key={time} className="flex items-center justify-between p-2 border border-gray-200 rounded hover:bg-gray-50 group">
-                          <div className="flex items-center gap-2">
-                            <button 
-                              onClick={() => {
-                                if(confirm(`Remover o horário ${time}?`)) {
-                                  onRemoveTime(time, selectedProForConfig);
-                                }
-                              }}
-                              className="text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                            <span className="font-mono font-bold text-gray-700">{time}</span>
-                          </div>
-                          <select
-                            value={currentType}
-                            onChange={(e) => {
-                              const newType = e.target.value as any;
-                              if (selectedProForConfig === 'global') {
-                                onUpdateSlotConfig(time, newType);
-                              } else {
-                                onUpdateProfessionalSlotConfig(selectedProForConfig, time, newType);
-                              }
-                            }}
-                            className={`text-sm rounded px-2 py-1 border outline-none cursor-pointer font-medium
-                              ${currentType === 'available' ? 'bg-white border-gray-300 text-gray-700' : ''}
-                              ${currentType === 'break' ? 'bg-yellow-100 border-yellow-300 text-yellow-800' : ''}
-                              ${currentType === 'lunch' ? 'bg-orange-100 border-orange-300 text-orange-800' : ''}
-                            `}
-                          >
-                            <option value="available">Atendimento</option>
-                            <option value="break">Intervalo</option>
-                            <option value="lunch">Almoço</option>
-                          </select>
-                        </div>
-                      );
-                    });
-                  })()}
-                </div>
+                          return (
+                            <div key={time} className="flex items-center justify-between p-2 border border-gray-200 rounded hover:bg-gray-50 group">
+                              <div className="flex items-center gap-2">
+                                {confirmDeleteTime === time ? (
+                                  <div className="flex items-center gap-1 animate-fade-in bg-red-50 p-1 rounded-lg border border-red-100">
+                                    <button 
+                                      type="button"
+                                      onClick={() => {
+                                        onRemoveTime(time, selectedProForConfig);
+                                        setConfirmDeleteTime(null);
+                                      }}
+                                      className="text-[10px] bg-red-600 text-white px-2 py-1 rounded font-bold hover:bg-red-700 transition-colors"
+                                    >
+                                      SIM
+                                    </button>
+                                    <button 
+                                      type="button"
+                                      onClick={() => setConfirmDeleteTime(null)}
+                                      className="text-[10px] bg-gray-400 text-white px-2 py-1 rounded font-bold hover:bg-gray-500 transition-colors"
+                                    >
+                                      NÃO
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button 
+                                    type="button"
+                                    onClick={() => {
+                                      console.log('StaffModal: Trash clicked for', time);
+                                      setConfirmDeleteTime(time);
+                                    }}
+                                    className="text-red-500 hover:text-red-700 p-2 hover:bg-red-100 rounded-lg transition-all flex items-center justify-center border border-transparent hover:border-red-200"
+                                    title="Remover horário"
+                                  >
+                                    <Trash2 size={20} />
+                                  </button>
+                                )}
+                                <span className="font-mono font-bold text-gray-700">{time}</span>
+                              </div>
+                              <select
+                                value={currentType}
+                                onChange={(e) => {
+                                  const newType = e.target.value as any;
+                                  if (selectedProForConfig === 'global') {
+                                    onUpdateSlotConfig(time, newType);
+                                  } else {
+                                    onUpdateProfessionalSlotConfig(selectedProForConfig, time, newType);
+                                  }
+                                }}
+                                className={`text-sm rounded px-2 py-1 border outline-none cursor-pointer font-medium
+                                  ${currentType === 'available' ? 'bg-white border-gray-300 text-gray-700' : ''}
+                                  ${currentType === 'break' ? 'bg-yellow-100 border-yellow-300 text-yellow-800' : ''}
+                                  ${currentType === 'lunch' ? 'bg-orange-100 border-orange-300 text-orange-800' : ''}
+                                `}
+                              >
+                                <option value="available">Atendimento</option>
+                                <option value="break">Intervalo</option>
+                                <option value="lunch">Almoço</option>
+                              </select>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             )}
 
@@ -397,6 +453,25 @@ const StaffModal: React.FC<StaffModalProps> = ({
                     </div>
                   </div>
                 </div>
+
+                <div>
+                  <h4 className="text-lg font-black text-corporate-blue mb-4">Segurança</h4>
+                  <div className="bg-red-50 p-4 rounded-2xl border border-red-100 mb-4">
+                    <p className="text-xs text-red-600 font-medium">
+                      Atenção: Esta senha é necessária para acessar este painel de configurações. Não a esqueça.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Senha do Administrador</label>
+                    <input
+                      type="text"
+                      value={adminPassword || ''}
+                      onChange={(e) => onUpdateAdminPassword?.(e.target.value)}
+                      placeholder="admin123"
+                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:border-corporate-blue outline-none"
+                    />
+                  </div>
+                </div>
               </div>
             )}
 
@@ -410,6 +485,38 @@ const StaffModal: React.FC<StaffModalProps> = ({
                     <p className="text-xs font-bold text-blue-500 uppercase tracking-widest mb-1">Total Geral</p>
                     <h5 className="text-4xl font-black text-corporate-blue">{totalBookings}</h5>
                     <p className="text-xs text-blue-400 mt-2">Agendamentos realizados</p>
+                  </div>
+                  
+                  <div className="flex items-center justify-center">
+                    {confirmClearAll ? (
+                      <div className="flex flex-col items-center gap-2 animate-fade-in bg-red-50 p-4 rounded-2xl border border-red-100">
+                        <p className="text-[10px] font-black text-red-600 uppercase tracking-widest">Apagar TUDO permanentemente?</p>
+                        <div className="flex gap-2">
+                          <button 
+                            onClick={() => {
+                              onClearSchedules();
+                              setConfirmClearAll(false);
+                            }}
+                            className="px-4 py-2 bg-red-600 text-white rounded-xl text-[10px] font-bold hover:bg-red-700 transition-all"
+                          >
+                            SIM, APAGAR TUDO
+                          </button>
+                          <button 
+                            onClick={() => setConfirmClearAll(false)}
+                            className="px-4 py-2 bg-slate-400 text-white rounded-xl text-[10px] font-bold hover:bg-slate-500 transition-all"
+                          >
+                            CANCELAR
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button 
+                        onClick={() => setConfirmClearAll(true)}
+                        className="px-6 py-3 bg-red-50 text-red-600 rounded-2xl text-xs font-bold hover:bg-red-100 transition-all border border-red-100 flex items-center gap-2"
+                      >
+                        <Trash2 size={14} /> Limpar Todos os Agendamentos
+                      </button>
+                    )}
                   </div>
                 </div>
 
