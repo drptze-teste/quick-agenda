@@ -1,4 +1,4 @@
-# Benesse Quick Massage - Sistema de Agendamento
+# Benesse Quick Massage - Sistema de Agendamento.
 
 Sistema de agendamento de massoterapia desenvolvido para a Benesse, com foco em Quick Massage corporativo.
 
