@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getFirestore, enableIndexedDbPersistence } from "firebase/firestore";
+import { getFirestore, initializeFirestore, persistentLocalCache } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 
 const firebaseConfig = {
@@ -11,20 +11,11 @@ const firebaseConfig = {
   appId: "1:90248119703:web:2be3cd45b31e31d12470d2"
 };
 
-// Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
-// Initialize Firestore
-export const db = getFirestore(app);
-
-// Initialize Auth
-export const auth = getAuth(app);
-
-// Habilita persistência offline (evita o "modo offline")
-enableIndexedDbPersistence(db).catch((err) => {
-  if (err.code === 'failed-precondition') {
-    console.warn('Persistência offline: múltiplas abas abertas.');
-  } else if (err.code === 'unimplemented') {
-    console.warn('Persistência offline não suportada neste browser.');
-  }
+// ✅ API moderna — substitui enableIndexedDbPersistence (depreciado)
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache()
 });
+
+export const auth = getAuth(app);
