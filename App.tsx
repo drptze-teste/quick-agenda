@@ -71,7 +71,7 @@ export default function App() {
     loadData();
   }, []);
 
-  // --- SALVAR DADOS NO GOOGLE FIREBASE (A MÁGICA DO F5) ---
+  // --- SALVAR DADOS NO GOOGLE FIREBASE (VERSÃO CORRIGIDA ANTI-UNDEFINED) ---
   useEffect(() => {
     if (isInitialLoad.current) return;
 
@@ -80,20 +80,26 @@ export default function App() {
         setIsSyncing(true);
         const batch = writeBatch(db);
 
-        // Salva Configurações
-        batch.set(doc(db, 'settings', 'default'), {
+        // Função auxiliar para remover campos 'undefined' que travam o Firebase
+        const cleanData = (obj: any) => JSON.parse(JSON.stringify(obj));
+
+        // 1. Salva Configurações
+        const settingsPayload = cleanData({
           logoUrl, clientName, availableDates, timeList, slotConfig,
           updatedAt: new Date().toISOString()
-        }, { merge: true });
+        });
+        batch.set(doc(db, 'settings', 'default'), settingsPayload, { merge: true });
 
-        // Salva Profissionais
+        // 2. Salva Profissionais
         professionals.forEach(pro => {
-          batch.set(doc(db, 'professionals', pro.id), pro, { merge: true });
+          batch.set(doc(db, 'professionals', pro.id), cleanData(pro), { merge: true });
         });
 
-        // Salva Agendamentos
+        // 3. Salva Agendamentos
         Object.entries(schedules).forEach(([key, slots]) => {
-          batch.set(doc(db, 'schedules', key), { slots }, { merge: true });
+          if (slots) {
+            batch.set(doc(db, 'schedules', key), { slots: cleanData(slots) }, { merge: true });
+          }
         });
 
         await batch.commit();
@@ -106,7 +112,7 @@ export default function App() {
       }
     };
 
-    const timeout = setTimeout(saveData, 1500); // Espera 1.5s após digitar para salvar
+    const timeout = setTimeout(saveData, 1500);
     return () => clearTimeout(timeout);
   }, [schedules, slotConfig, professionals, availableDates, timeList, logoUrl, clientName]);
 
@@ -146,8 +152,6 @@ export default function App() {
     );
     setSchedules(prev => ({ ...prev, [currentScheduleKey]: newSlots }));
   };
-
-  const midPoint = Math.ceil(currentSlots.length / 2);
 
   return (
     <div className="min-h-screen bg-slate-50 p-4 sm:p-8">
