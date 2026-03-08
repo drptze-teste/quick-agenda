@@ -1,17 +1,17 @@
-
 import React, { useState, useEffect, useRef } from 'react';
-import { INITIAL_SLOTS, generateScheduleFromConfig, DEFAULT_SLOT_CONFIG, DEFAULT_PROFESSIONAL, TIME_LIST } from './constants';
+import { INITIAL_SLOTS, DEFAULT_SLOT_CONFIG, DEFAULT_PROFESSIONAL, TIME_LIST } from './constants';
 import { TimeSlot, Professional, SlotConfig } from './types';
 import SlotItem from './components/SlotItem';
-import { LayoutGrid, List, Sparkles, Flower2, CalendarDays, Users, UserCircle, ChevronDown, Settings, CloudOff, Cloud, Printer, Trash2 } from 'lucide-react';
+import { LayoutGrid, List, Sparkles, Flower2, CalendarDays, Users, UserCircle, ChevronDown, Settings, CloudOff, Printer, Trash2 } from 'lucide-react';
 import BookingModal from './components/BookingModal';
 import BenesseLogo from './components/BenesseLogo';
 import StaffModal from './components/StaffModal';
 import { getScheduleSummary } from './services/geminiService';
 import { db } from './lib/firebase';
-import { doc, getDoc, setDoc, collection, getDocs, writeBatch, deleteDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, getDocs, writeBatch, deleteDoc } from 'firebase/firestore';
 
 export default function App() {
+
   // --- CONFIGURATION STATE ---
   const [slotConfig, setSlotConfig] = useState<SlotConfig>(DEFAULT_SLOT_CONFIG);
   const [availableDates, setAvailableDates] = useState<string[]>(['2026-01-01']);
@@ -24,11 +24,10 @@ export default function App() {
   const [currentDate, setCurrentDate] = useState<string>('2026-01-01');
   const [professionals, setProfessionals] = useState<Professional[]>([DEFAULT_PROFESSIONAL]);
   const [selectedProfessionalId, setSelectedProfessionalId] = useState<string>(DEFAULT_PROFESSIONAL.id);
-  
+
   const [schedules, setSchedules] = useState<Record<string, TimeSlot[]>>({
     [`2026-01-01::${DEFAULT_PROFESSIONAL.id}`]: INITIAL_SLOTS
   });
-
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
@@ -37,37 +36,35 @@ export default function App() {
   const [loginInput, setLoginInput] = useState('');
   const [loginError, setLoginError] = useState('');
   const [viewMode, setViewMode] = useState<'dashboard' | 'list'>('dashboard');
-  const [summary, setSummary] = useState<string>("");
+  const [summary, setSummary] = useState<string>('');
   const [isLoadingSummary, setIsLoadingSummary] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
-
   const isInitialLoad = useRef(true);
 
   // --- PERSISTENCE LOGIC ---
-
-  // Load data on mount
   useEffect(() => {
     const loadData = async () => {
       try {
         setIsSyncing(true);
-        // 1. Fetch settings from Firestore
+
         const settingsDoc = await getDoc(doc(db, 'settings', 'default'));
         const settings = settingsDoc.exists() ? settingsDoc.data() : {};
 
-        // 2. Fetch professionals
         const professionalsSnapshot = await getDocs(collection(db, 'professionals'));
-        const professionalsData = professionalsSnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
+        const professionalsData = professionalsSnapshot.docs.map(d => ({
+          id: d.id,
+          ...d.data()
         })) as Professional[];
 
-        // 3. Fetch schedules
         const schedulesSnapshot = await getDocs(collection(db, 'schedules'));
         const schedulesMap: Record<string, TimeSlot[]> = {};
-        schedulesSnapshot.docs.forEach(doc => {
-          schedulesMap[doc.id] = doc.data()?.slots;
+        schedulesSnapshot.docs.forEach(d => {
+          schedulesMap[d.id] = d.data()?.slots;
         });
+
+        // ✅ CORREÇÃO: setIsOnline(true) FORA do if — sempre online se Firebase respondeu
+        setIsOnline(true);
 
         if (Object.keys(schedulesMap).length > 0 || professionalsData.length > 0) {
           setSchedules(schedulesMap);
@@ -78,9 +75,7 @@ export default function App() {
           setLogoUrl(settings?.logoUrl || '');
           setClientName(settings?.clientName || 'Cescon Barrieu');
           setAdminPassword(settings?.adminPassword || 'admin123');
-          setIsOnline(true);
-          
-          // Sync to local storage as backup
+
           localStorage.setItem('benesse_data', JSON.stringify({
             schedules: schedulesMap,
             slotConfig: settings?.slotConfig,
@@ -92,11 +87,11 @@ export default function App() {
             adminPassword: settings?.adminPassword
           }));
         }
+
       } catch (error) {
         console.warn('Could not load from Firebase, trying localStorage...', error);
         setIsOnline(false);
-        
-        // 2. Fallback to LocalStorage
+
         const localData = localStorage.getItem('benesse_data');
         if (localData) {
           const data = JSON.parse(localData);
@@ -136,15 +131,12 @@ export default function App() {
         adminPassword
       };
 
-      // Always save to localStorage first (offline safety)
       localStorage.setItem('benesse_data', JSON.stringify(dataToSave));
 
-      // Try to sync with Firebase
       try {
         setIsSyncing(true);
         const batch = writeBatch(db);
 
-        // 1. Update Settings
         const settingsRef = doc(db, 'settings', 'default');
         batch.set(settingsRef, {
           logoUrl: logoUrl || '',
@@ -156,7 +148,6 @@ export default function App() {
           updatedAt: new Date().toISOString()
         }, { merge: true });
 
-        // 2. Update Professionals
         if (professionals && Array.isArray(professionals)) {
           for (const pro of professionals) {
             const proRef = doc(db, 'professionals', pro.id);
@@ -168,7 +159,6 @@ export default function App() {
           }
         }
 
-        // 3. Update Schedules
         if (schedules) {
           for (const [key, slots] of Object.entries(schedules)) {
             const scheduleRef = doc(db, 'schedules', key);
@@ -189,40 +179,31 @@ export default function App() {
       }
     };
 
-    // Debounce saving
     const timeout = setTimeout(saveData, 1000);
     return () => clearTimeout(timeout);
   }, [schedules, slotConfig, professionals, availableDates, timeList, logoUrl, clientName]);
 
   // --- HELPERS ---
-
-  // Helper to generate key
   const getScheduleKey = (date: string, proId: string) => `${date}::${proId}`;
 
   const selectedProfessional = professionals.find(p => p.id === selectedProfessionalId) || professionals[0];
   const activeTimeList = selectedProfessional?.timeList || timeList;
-  
-  // Merge global config with professional config for the current view
+
   const proSlotConfig = {
     ...slotConfig,
     ...(selectedProfessional?.slotConfig || {})
   };
 
-  // Get current slots. If not found in state, we'll build it from config
   const currentScheduleKey = getScheduleKey(currentDate, selectedProfessionalId);
   const savedSlots = (schedules || {})[currentScheduleKey] || [];
 
-  // Always build the schedule based on the current timeList to ensure updates reflect immediately
   const currentSlots = activeTimeList.map((time, index) => {
-    // Try to find a saved slot for this time
     const savedSlot = savedSlots.find(s => s.time === time);
-    
-    // If it's booked, we keep the booking
+
     if (savedSlot && savedSlot.type === 'booked') {
       return savedSlot;
     }
 
-    // Otherwise, use the current config (global + pro override)
     const configType = proSlotConfig[time] || slotConfig[time] || 'available';
     return {
       id: savedSlot?.id || `slot-${index}-${time}`,
@@ -232,13 +213,11 @@ export default function App() {
     };
   });
 
-  // Split slots for UI
   const midPoint = Math.ceil(currentSlots.length / 2);
   const leftColumnSlots = currentSlots.slice(0, midPoint);
   const rightColumnSlots = currentSlots.slice(midPoint);
 
   // --- HANDLERS ---
-
   const handleSlotClick = (slot: TimeSlot) => {
     if (slot.type === 'break' || slot.type === 'lunch') return;
     setSelectedSlot(slot);
@@ -268,27 +247,22 @@ export default function App() {
 
   const handleBooking = (name: string) => {
     if (!selectedSlot) return;
-
-    const newSlots = currentSlots.map(s => 
+    const newSlots = currentSlots.map(s =>
       s.id === selectedSlot.id ? { ...s, type: 'booked' as const, attendeeName: name } : s
     );
-
     setSchedules(prev => ({
       ...prev,
       [currentScheduleKey]: newSlots
     }));
-    
     setIsModalOpen(false);
     setSelectedSlot(null);
   };
 
   const handleDirectCancel = (slot: TimeSlot) => {
     if (!window.confirm(`Deseja cancelar o agendamento de ${slot.attendeeName}?`)) return;
-
-    const newSlots = currentSlots.map(s => 
+    const newSlots = currentSlots.map(s =>
       s.id === slot.id ? { ...s, type: 'available' as const, attendeeName: undefined } : s
     );
-
     setSchedules(prev => ({
       ...prev,
       [currentScheduleKey]: newSlots
@@ -302,28 +276,25 @@ export default function App() {
 
   const handleRemoveProfessional = async (id: string) => {
     if (professionals.length <= 1) return;
-    
-    // 1. Update local state immediately
+
     setProfessionals(prev => prev.filter(p => p.id !== id));
     if (selectedProfessionalId === id) {
       setSelectedProfessionalId(professionals.find(p => p.id !== id)?.id || '');
     }
 
-    // 2. Persist deletion to Firestore
     try {
       await deleteDoc(doc(db, 'professionals', id));
-      
-      // Cleanup: delete all schedules associated with this professional
+
       const schedulesSnapshot = await getDocs(collection(db, 'schedules'));
       const batch = writeBatch(db);
       let deletedCount = 0;
-      schedulesSnapshot.docs.forEach(doc => {
-        if (doc.id.endsWith(`::${id}`)) {
-          batch.delete(doc.ref);
+      schedulesSnapshot.docs.forEach(d => {
+        if (d.id.endsWith(`::${id}`)) {
+          batch.delete(d.ref);
           deletedCount++;
         }
       });
-      
+
       if (deletedCount > 0) {
         await batch.commit();
         console.log(`App: Deleted professional ${id} and ${deletedCount} associated schedules.`);
@@ -336,22 +307,13 @@ export default function App() {
   };
 
   const handleUpdateSlotConfig = (time: string, type: 'available' | 'break' | 'lunch') => {
-    setSlotConfig(prev => ({
-      ...prev,
-      [time]: type
-    }));
+    setSlotConfig(prev => ({ ...prev, [time]: type }));
   };
 
   const handleUpdateProfessionalSlotConfig = (proId: string, time: string, type: 'available' | 'break' | 'lunch') => {
     setProfessionals(prev => prev.map(p => {
       if (p.id === proId) {
-        return {
-          ...p,
-          slotConfig: {
-            ...(p.slotConfig || {}),
-            [time]: type
-          }
-        };
+        return { ...p, slotConfig: { ...(p.slotConfig || {}), [time]: type } };
       }
       return p;
     }));
@@ -377,10 +339,9 @@ export default function App() {
 
   const handleRemoveTime = (time: string, proId?: string) => {
     console.log('App: handleRemoveTime called for:', time, 'pro:', proId);
-    
+
     let updatedProfessionals = [...professionals];
 
-    // 1. Update Configuration
     if (proId && proId !== 'global') {
       updatedProfessionals = professionals.map(p => {
         if (p.id === proId) {
@@ -397,7 +358,7 @@ export default function App() {
       setTimeList(prev => {
         const newList = prev.filter(t => t !== time);
         console.log(`App: Global timeList updated. Old size: ${prev.length}, New size: ${newList.length}`);
-        return newList.length > 0 ? newList : prev; // Don't fallback to default, just keep current if it would be empty
+        return newList.length > 0 ? newList : prev;
       });
       setSlotConfig(prev => {
         const newConfig = { ...prev };
@@ -406,7 +367,6 @@ export default function App() {
       });
     }
 
-    // 2. Update existing schedules to reflect the removal immediately
     setSchedules(prev => {
       const newSchedules = { ...prev };
       let removedCount = 0;
@@ -414,7 +374,7 @@ export default function App() {
         const parts = key.split('::');
         if (parts.length !== 2) return;
         const keyProId = parts[1];
-        
+
         if (proId && proId !== 'global') {
           if (keyProId === proId) {
             const originalLength = newSchedules[key].length;
@@ -430,6 +390,7 @@ export default function App() {
           }
         }
       });
+
       if (removedCount > 0) {
         console.log(`App: Removed ${removedCount} slots from existing schedules.`);
       }
@@ -451,27 +412,22 @@ export default function App() {
 
   const handleClearSchedules = async () => {
     console.log('Starting handleClearSchedules...');
-
     try {
       setIsSyncing(true);
-      
-      // 1. Clear in Firestore
-      console.log('Fetching all schedules from Firestore...');
+
       const schedulesSnapshot = await getDocs(collection(db, 'schedules'));
       console.log(`Found ${schedulesSnapshot.size} schedule documents to delete.`);
-      
+
       const batch = writeBatch(db);
-      schedulesSnapshot.docs.forEach(doc => {
-        batch.delete(doc.ref);
+      schedulesSnapshot.docs.forEach(d => {
+        batch.delete(d.ref);
       });
-      
+
       await batch.commit();
       console.log('Firestore batch delete committed.');
-      
-      // 2. Clear in State
+
       setSchedules({});
-      
-      // 3. Clear in LocalStorage
+
       const localData = localStorage.getItem('benesse_data');
       if (localData) {
         const data = JSON.parse(localData);
@@ -496,25 +452,23 @@ export default function App() {
 
   const handleRemoveDate = async (date: string) => {
     if (availableDates.length <= 1) return;
-    
-    // 1. Update local state
+
     setAvailableDates(prev => prev.filter(d => d !== date));
     if (currentDate === date) {
       setCurrentDate(availableDates.find(d => d !== date) || '');
     }
 
-    // 2. Persist cleanup to Firestore
     try {
       const schedulesSnapshot = await getDocs(collection(db, 'schedules'));
       const batch = writeBatch(db);
       let deletedCount = 0;
-      schedulesSnapshot.docs.forEach(doc => {
-        if (doc.id.startsWith(`${date}::`)) {
-          batch.delete(doc.ref);
+      schedulesSnapshot.docs.forEach(d => {
+        if (d.id.startsWith(`${date}::`)) {
+          batch.delete(d.ref);
           deletedCount++;
         }
       });
-      
+
       if (deletedCount > 0) {
         await batch.commit();
         console.log(`App: Deleted date ${date} and ${deletedCount} associated schedules.`);
@@ -530,7 +484,7 @@ export default function App() {
       const summaryText = await getScheduleSummary(currentSlots, selectedProfessional.name, currentDate);
       setSummary(summaryText);
     } catch (error) {
-      setSummary("Não foi possível gerar o resumo no momento.");
+      setSummary('Não foi possível gerar o resumo no momento.');
     } finally {
       setIsLoadingSummary(false);
     }
@@ -538,7 +492,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col items-center p-4 sm:p-8 font-sans">
-      
+
       {/* Sync Status Indicator */}
       <div className="fixed top-4 right-4 z-50 flex items-center gap-2">
         {isSyncing && (
@@ -569,8 +523,8 @@ export default function App() {
               {clientName}
             </h1>
           </div>
-          
-          <button 
+
+          <button
             onClick={handleAdminClick}
             className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-full text-slate-600 hover:bg-slate-50 transition-all shadow-sm hover:shadow-md active:scale-95"
           >
@@ -585,11 +539,10 @@ export default function App() {
               <span className="text-xs font-bold text-blue-500 uppercase tracking-[0.2em] mb-1">Agendamento Online</span>
               <h2 className="text-3xl font-black text-corporate-blue tracking-tighter">Massoterapia Quick</h2>
             </div>
-
             <div className="flex items-center gap-3 bg-slate-50 p-2 rounded-2xl border border-slate-100">
               <div className="flex items-center gap-2 px-4 py-2 bg-white rounded-xl shadow-sm border border-slate-200">
                 <CalendarDays size={18} className="text-blue-500" />
-                <select 
+                <select
                   value={currentDate}
                   onChange={(e) => setCurrentDate(e.target.value)}
                   className="bg-transparent border-none outline-none text-sm font-bold text-slate-700 cursor-pointer"
@@ -614,8 +567,8 @@ export default function App() {
                 onClick={() => setSelectedProfessionalId(pro.id)}
                 className={`
                   flex items-center gap-2 px-4 py-2 rounded-full whitespace-nowrap transition-all font-medium text-sm border
-                  ${selectedProfessionalId === pro.id 
-                    ? 'bg-corporate-blue text-white border-corporate-blue shadow-md' 
+                  ${selectedProfessionalId === pro.id
+                    ? 'bg-corporate-blue text-white border-corporate-blue shadow-md'
                     : 'bg-white text-gray-600 border-gray-200 hover:border-corporate-blue hover:text-corporate-blue'}
                 `}
               >
@@ -624,9 +577,8 @@ export default function App() {
               </button>
             ))}
           </div>
-
           <div className="flex bg-gray-100 p-1 rounded-xl border border-gray-200 shrink-0">
-            <button 
+            <button
               onClick={() => setViewMode('dashboard')}
               className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${viewMode === 'dashboard' ? 'bg-white text-corporate-blue shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
               title="Visão Geral"
@@ -634,7 +586,7 @@ export default function App() {
               <LayoutGrid size={14} />
               <span className="hidden lg:inline">Dashboard</span>
             </button>
-            <button 
+            <button
               onClick={() => setViewMode('list')}
               className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${viewMode === 'list' ? 'bg-white text-corporate-blue shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
               title="Lista Individual"
@@ -656,8 +608,7 @@ export default function App() {
               <h3 className="text-lg font-bold text-slate-800 leading-none">{selectedProfessional.name}</h3>
             </div>
           </div>
-
-          <button 
+          <button
             onClick={handleGetSummary}
             disabled={isLoadingSummary}
             className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-700 rounded-xl text-xs font-bold hover:bg-emerald-100 transition-all border border-emerald-100 disabled:opacity-50"
@@ -677,7 +628,7 @@ export default function App() {
               <div className="text-sm text-slate-600 leading-relaxed italic">
                 {summary}
               </div>
-              <button onClick={() => setSummary("")} className="text-slate-300 hover:text-slate-500">
+              <button onClick={() => setSummary('')} className="text-slate-300 hover:text-slate-500">
                 <ChevronDown size={16} />
               </button>
             </div>
@@ -691,9 +642,9 @@ export default function App() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-4">
             <div className="flex flex-col gap-3">
               {leftColumnSlots.map(slot => (
-                <SlotItem 
-                  key={`${currentDate}-${selectedProfessionalId}-${slot.id}`} 
-                  slot={slot} 
+                <SlotItem
+                  key={`${currentDate}-${selectedProfessionalId}-${slot.id}`}
+                  slot={slot}
                   onSelect={handleSlotClick}
                   onCancel={() => handleDirectCancel(slot)}
                 />
@@ -701,9 +652,9 @@ export default function App() {
             </div>
             <div className="flex flex-col gap-3">
               {rightColumnSlots.map(slot => (
-                <SlotItem 
-                  key={`${currentDate}-${selectedProfessionalId}-${slot.id}`} 
-                  slot={slot} 
+                <SlotItem
+                  key={`${currentDate}-${selectedProfessionalId}-${slot.id}`}
+                  slot={slot}
                   onSelect={handleSlotClick}
                   onCancel={() => handleDirectCancel(slot)}
                 />
@@ -717,7 +668,7 @@ export default function App() {
                 <List size={18} className="text-corporate-blue" />
                 Lista de Atendimentos - {selectedProfessional.name}
               </h3>
-              <button 
+              <button
                 onClick={() => window.print()}
                 className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-bold text-gray-600 hover:bg-gray-50 transition-colors"
               >
@@ -726,7 +677,7 @@ export default function App() {
             </div>
             <div className="divide-y divide-gray-100">
               {currentSlots.map(slot => (
-                <div 
+                <div
                   key={slot.id}
                   className={`flex items-center p-4 transition-colors ${slot.type === 'booked' ? 'bg-blue-50/30' : 'hover:bg-gray-50'}`}
                 >
@@ -748,10 +699,9 @@ export default function App() {
                         <span className="text-gray-400 italic">Disponível</span>
                       )}
                     </div>
-                    
                     <div className="flex gap-2">
                       {slot.type === 'booked' ? (
-                        <button 
+                        <button
                           onClick={() => handleDirectCancel(slot)}
                           className="p-2 text-gray-400 hover:text-red-500 transition-colors"
                           title="Cancelar Agendamento"
@@ -759,7 +709,7 @@ export default function App() {
                           <Trash2 size={18} />
                         </button>
                       ) : (slot.type === 'available') && (
-                        <button 
+                        <button
                           onClick={() => handleSlotClick(slot)}
                           className="px-4 py-1.5 bg-corporate-blue text-white text-xs font-bold rounded-lg hover:bg-blue-800 transition-colors"
                         >
@@ -781,9 +731,9 @@ export default function App() {
           <span className="font-bold tracking-widest uppercase text-[10px]">Benesse Quick Massage</span>
         </div>
         <p className="mb-2">© 2026 Sistema de Agendamento Corporativo</p>
-        <a 
-          href="https://www.benessegestaoesportiva.com.br" 
-          target="_blank" 
+        <a
+          href="https://www.benessegestaoesportiva.com.br"
+          target="_blank"
           rel="noopener noreferrer"
           className="text-blue-400 hover:text-blue-600 transition-colors font-medium"
         >
@@ -792,10 +742,10 @@ export default function App() {
       </footer>
 
       {/* MODALS */}
-      <BookingModal 
-        isOpen={isModalOpen} 
-        onClose={() => setIsModalOpen(false)} 
-        slot={selectedSlot} 
+      <BookingModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        slot={selectedSlot}
         onBook={handleBooking}
       />
 
@@ -836,7 +786,6 @@ export default function App() {
               <h3 className="text-2xl font-black text-corporate-blue tracking-tight">Acesso Restrito</h3>
               <p className="text-slate-500 text-sm mt-2">Digite a senha de administrador para continuar</p>
             </div>
-
             <form onSubmit={handleLoginSubmit} className="space-y-4">
               <div>
                 <input
@@ -850,14 +799,14 @@ export default function App() {
                 {loginError && <p className="text-red-500 text-xs font-bold mt-2 text-center">{loginError}</p>}
               </div>
               <div className="flex gap-3">
-                <button 
+                <button
                   type="button"
                   onClick={() => setIsLoginModalOpen(false)}
                   className="flex-1 px-6 py-4 bg-slate-100 text-slate-600 rounded-2xl font-bold hover:bg-slate-200 transition-all"
                 >
                   Cancelar
                 </button>
-                <button 
+                <button
                   type="submit"
                   className="flex-1 px-6 py-4 bg-corporate-blue text-white rounded-2xl font-bold hover:bg-blue-800 shadow-lg shadow-blue-900/20 transition-all"
                 >
