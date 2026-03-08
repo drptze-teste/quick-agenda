@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getFirestore, initializeFirestore, persistentLocalCache } from "firebase/firestore";
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 
 const firebaseConfig = {
@@ -13,9 +13,13 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 
-// ✅ API moderna — substitui enableIndexedDbPersistence (depreciado)
+// ✅ Força long-polling — resolve ERR_QUIC_PROTOCOL_ERROR
 export const db = initializeFirestore(app, {
-  localCache: persistentLocalCache()
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager()
+  }),
+  experimentalForceLongPolling: true, // 👈 chave do problema
+  useFetchStreams: false               // 👈 desativa streams via QUIC
 });
 
 export const auth = getAuth(app);
