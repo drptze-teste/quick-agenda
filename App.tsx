@@ -23,16 +23,12 @@ export default function App() {
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
-  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
-  const [viewMode, setViewMode] = useState<'dashboard' | 'list'>('dashboard');
-  const [summary, setSummary] = useState<string>("");
-  const [isLoadingSummary, setIsLoadingSummary] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
 
   const isInitialLoad = useRef(true);
 
-  // --- CARREGAR DADOS DO GOOGLE FIREBASE ---
+  // --- CARREGAR DADOS ---
   useEffect(() => {
     const loadData = async () => {
       try {
@@ -52,16 +48,18 @@ export default function App() {
           schedulesMap[doc.id] = doc.data()?.slots;
         });
 
-        if (Object.keys(schedulesMap).length > 0 || professionalsData.length > 0) {
+        if (settingsDoc.exists() || professionalsData.length > 0) {
           setSchedules(schedulesMap);
           setSlotConfig(settings?.slotConfig || DEFAULT_SLOT_CONFIG);
           setProfessionals(professionalsData.length > 0 ? professionalsData : [DEFAULT_PROFESSIONAL]);
           setAvailableDates(settings?.availableDates || ['2026-03-07']);
           setClientName(settings?.clientName || 'Cescon Barrieu');
+          setLogoUrl(settings?.logoUrl || '');
+          setTimeList(settings?.timeList || TIME_LIST);
           setIsOnline(true);
         }
       } catch (error) {
-        console.error('Erro ao carregar do Firebase:', error);
+        console.error('Erro ao carregar:', error);
         setIsOnline(false);
       } finally {
         isInitialLoad.current = false;
@@ -71,7 +69,7 @@ export default function App() {
     loadData();
   }, []);
 
-  // --- SALVAR DADOS NO GOOGLE FIREBASE (VERSÃO CORRIGIDA ANTI-UNDEFINED) ---
+  // --- SALVAR DADOS (CORREÇÃO PARA ADM) ---
   useEffect(() => {
     if (isInitialLoad.current) return;
 
@@ -79,27 +77,19 @@ export default function App() {
       try {
         setIsSyncing(true);
         const batch = writeBatch(db);
+        const clean = (obj: any) => JSON.parse(JSON.stringify(obj));
 
-        // Função auxiliar para remover campos 'undefined' que travam o Firebase
-        const cleanData = (obj: any) => JSON.parse(JSON.stringify(obj));
-
-        // 1. Salva Configurações
-        const settingsPayload = cleanData({
+        batch.set(doc(db, 'settings', 'default'), clean({
           logoUrl, clientName, availableDates, timeList, slotConfig,
           updatedAt: new Date().toISOString()
-        });
-        batch.set(doc(db, 'settings', 'default'), settingsPayload, { merge: true });
+        }), { merge: true });
 
-        // 2. Salva Profissionais
         professionals.forEach(pro => {
-          batch.set(doc(db, 'professionals', pro.id), cleanData(pro), { merge: true });
+          batch.set(doc(db, 'professionals', pro.id), clean(pro), { merge: true });
         });
 
-        // 3. Salva Agendamentos
         Object.entries(schedules).forEach(([key, slots]) => {
-          if (slots) {
-            batch.set(doc(db, 'schedules', key), { slots: cleanData(slots) }, { merge: true });
-          }
+          if (slots) batch.set(doc(db, 'schedules', key), { slots: clean(slots) }, { merge: true });
         });
 
         await batch.commit();
@@ -112,11 +102,16 @@ export default function App() {
       }
     };
 
-    const timeout = setTimeout(saveData, 1500);
+    const timeout = setTimeout(saveData, 1000);
     return () => clearTimeout(timeout);
   }, [schedules, slotConfig, professionals, availableDates, timeList, logoUrl, clientName]);
 
-  // --- LÓGICA DE INTERFACE ---
+  // Funções de ADM forçadas
+  const updateClientName = (val: string) => setClientName(val);
+  const updateLogo = (val: string) => setLogoUrl(val);
+  const addDate = (d: string) => setAvailableDates(prev => [...prev, d]);
+  const removeDate = (d: string) => setAvailableDates(prev => prev.filter(date => date !== d));
+
   const getScheduleKey = (date: string, proId: string) => `${date}::${proId}`;
   const selectedProfessional = professionals.find(p => p.id === selectedProfessionalId) || professionals[0];
   const activeTimeList = selectedProfessional?.timeList || timeList;
@@ -126,7 +121,6 @@ export default function App() {
   const currentSlots = activeTimeList.map((time, index) => {
     const savedSlot = savedSlots.find(s => s.time === time);
     if (savedSlot && savedSlot.type === 'booked') return savedSlot;
-    
     const configType = (selectedProfessional.slotConfig?.[time]) || slotConfig[time] || 'available';
     return {
       id: `slot-${index}-${time}`,
@@ -136,29 +130,11 @@ export default function App() {
     };
   });
 
-  const handleBooking = (name: string) => {
-    if (!selectedSlot) return;
-    const newSlots = currentSlots.map(s => 
-      s.id === selectedSlot.id ? { ...s, type: 'booked' as const, attendeeName: name } : s
-    );
-    setSchedules(prev => ({ ...prev, [currentScheduleKey]: newSlots }));
-    setIsModalOpen(false);
-  };
-
-  const handleDirectCancel = (slot: TimeSlot) => {
-    if (!confirm(`Cancelar agendamento de ${slot.attendeeName}?`)) return;
-    const newSlots = currentSlots.map(s => 
-      s.id === slot.id ? { ...s, type: 'available' as const, attendeeName: undefined } : s
-    );
-    setSchedules(prev => ({ ...prev, [currentScheduleKey]: newSlots }));
-  };
-
   return (
     <div className="min-h-screen bg-slate-50 p-4 sm:p-8">
-      {/* Indicador de Nuvem */}
       <div className="fixed top-4 right-4 z-50">
         {isSyncing ? (
-          <div className="bg-blue-600 text-white text-[10px] px-3 py-1 rounded-full animate-pulse font-bold">SALVANDO NO GOOGLE...</div>
+          <div className="bg-blue-600 text-white text-[10px] px-3 py-1 rounded-full animate-pulse font-bold">SINCRONIZANDO...</div>
         ) : !isOnline ? (
           <div className="bg-red-500 text-white text-[10px] px-3 py-1 rounded-full font-bold">OFFLINE</div>
         ) : (
@@ -168,22 +144,15 @@ export default function App() {
 
       <header className="max-w-5xl mx-auto mb-10">
         <div className="flex justify-between items-center mb-8">
-           <BenesseLogo />
+           {logoUrl ? <img src={logoUrl} alt="Logo" className="h-12 object-contain" /> : <BenesseLogo />}
            <button onClick={() => setIsStaffModalOpen(true)} className="p-2 bg-white rounded-full border shadow-sm"><Settings size={20}/></button>
         </div>
         <div className="bg-white p-8 rounded-3xl shadow-xl border border-blue-50">
           <h2 className="text-3xl font-black text-slate-800">Massoterapia Quick</h2>
           <p className="text-blue-600 font-bold uppercase text-xs tracking-widest mt-1">{clientName}</p>
-          
           <div className="mt-6 flex gap-4 overflow-x-auto pb-2">
             {professionals.map(pro => (
-              <button 
-                key={pro.id}
-                onClick={() => setSelectedProfessionalId(pro.id)}
-                className={`px-6 py-2 rounded-full text-sm font-bold transition-all border ${selectedProfessionalId === pro.id ? 'bg-slate-800 text-white' : 'bg-white text-slate-500'}`}
-              >
-                {pro.name}
-              </button>
+              <button key={pro.id} onClick={() => setSelectedProfessionalId(pro.id)} className={`px-6 py-2 rounded-full text-sm font-bold border ${selectedProfessionalId === pro.id ? 'bg-slate-800 text-white' : 'bg-white text-slate-500'}`}>{pro.name}</button>
             ))}
           </div>
         </div>
@@ -191,20 +160,18 @@ export default function App() {
 
       <main className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-4">
         {currentSlots.map(slot => (
-          <SlotItem 
-            key={slot.id} 
-            slot={slot} 
-            onSelect={() => { setSelectedSlot(slot); setIsModalOpen(true); }}
-            onCancel={() => handleDirectCancel(slot)}
-          />
+          <SlotItem key={slot.id} slot={slot} onSelect={() => { setSelectedSlot(slot); setIsModalOpen(true); }} onCancel={() => {}} />
         ))}
       </main>
 
-      <footer className="mt-20 text-center opacity-50 text-xs font-bold tracking-widest">
-        BENESSE GESTÃO ESPORTIVA © 2026
-      </footer>
+      <footer className="mt-20 text-center opacity-50 text-xs font-bold tracking-widest">BENESSE GESTÃO ESPORTIVA © 2026</footer>
 
-      <BookingModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} slot={selectedSlot} onBook={handleBooking} />
+      <BookingModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} slot={selectedSlot} onBook={(name) => {
+        const newSlots = currentSlots.map(s => s.id === selectedSlot?.id ? { ...s, type: 'booked' as const, attendeeName: name } : s);
+        setSchedules(prev => ({ ...prev, [currentScheduleKey]: newSlots }));
+        setIsModalOpen(false);
+      }} />
+      
       <StaffModal 
          isOpen={isStaffModalOpen} 
          onClose={() => setIsStaffModalOpen(false)} 
@@ -212,17 +179,17 @@ export default function App() {
          onAddProfessional={(name) => setProfessionals([...professionals, {id: Date.now().toString(), name}])}
          onRemoveProfessional={(id) => setProfessionals(professionals.filter(p => p.id !== id))}
          availableDates={availableDates}
-         onAddDate={(d) => setAvailableDates([...availableDates, d])}
-         onRemoveDate={(d) => setAvailableDates(availableDates.filter(date => date !== d))}
+         onAddDate={addDate}
+         onRemoveDate={removeDate}
          slotConfig={slotConfig}
-         onUpdateSlotConfig={(time, type) => setSlotConfig({...slotConfig, [time]: type})}
+         onUpdateSlotConfig={(time, type) => setSlotConfig(prev => ({...prev, [time]: type}))}
          timeList={timeList}
-         onAddTime={(t) => setTimeList([...timeList, t].sort())}
-         onRemoveTime={(t) => setTimeList(timeList.filter(time => time !== t))}
+         onAddTime={(t) => setTimeList(prev => [...prev, t].sort())}
+         onRemoveTime={(t) => setTimeList(prev => prev.filter(time => time !== t))}
          clientName={clientName}
-         onUpdateClientName={setClientName}
+         onUpdateClientName={updateClientName}
          logoUrl={logoUrl}
-         onUpdateLogo={setLogoUrl}
+         onUpdateLogo={updateLogo}
          schedules={schedules}
       />
     </div>
