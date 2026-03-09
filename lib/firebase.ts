@@ -1,7 +1,7 @@
 import { initializeApp } from "firebase/app";
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
-import { getAuth } from "firebase/auth";
+import { getFirestore } from "firebase/firestore";
 
+// Firebase configuration using official credentials
 const firebaseConfig = {
   apiKey: "AIzaSyBnKkjWMb9tpW2yqLUDeOGGOXxC71YFdnU",
   authDomain: "agenda-quick-benesse.firebaseapp.com",
@@ -11,15 +11,8 @@ const firebaseConfig = {
   appId: "1:90248119703:web:2be3cd45b31e31d12470d2"
 };
 
+// Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
-// ✅ Força long-polling — resolve ERR_QUIC_PROTOCOL_ERROR
-export const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({
-    tabManager: persistentMultipleTabManager()
-  }),
-  experimentalForceLongPolling: true, // 👈 chave do problema
-  useFetchStreams: false               // 👈 desativa streams via QUIC
-});
-
-export const auth = getAuth(app);
+// Initialize Firestore
+export const db = getFirestore(app);

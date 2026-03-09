@@ -22,12 +22,18 @@ export const DEFAULT_PROFESSIONAL: Professional = {
 export const generateScheduleFromConfig = (config: SlotConfig, timeList: string[]): TimeSlot[] => {
   const safeConfig = config || {};
   const safeTimeList = timeList || [];
-  return safeTimeList.map((time, index) => ({
-    id: `slot-${index}`,
-    time,
-    type: (safeConfig[time] as any) || 'available',
-    attendeeName: safeConfig[time] === 'lunch' ? 'Almoço' : safeConfig[time] === 'break' ? 'Intervalo' : undefined
-  }));
+  return safeTimeList.map((time, index) => {
+    const slot: TimeSlot = {
+      id: `slot-${index}`,
+      time,
+      type: (safeConfig[time] as any) || 'available',
+    };
+    
+    if (safeConfig[time] === 'lunch') slot.attendeeName = 'Almoço';
+    else if (safeConfig[time] === 'break') slot.attendeeName = 'Intervalo';
+    
+    return slot;
+  });
 };
 
 export const INITIAL_SLOTS = generateScheduleFromConfig(DEFAULT_SLOT_CONFIG, TIME_LIST);
