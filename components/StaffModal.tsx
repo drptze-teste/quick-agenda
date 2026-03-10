@@ -35,13 +35,9 @@ interface StaffModalProps {
   onUpdateAdminPassword?: (pass: string) => void;
   // Reports Props
   schedules: Record<string, TimeSlot[]>;
-  // Companies Props (Multi-tenant management)
-  allCompanies: Company[];
-  onAddCompany: (slug: string, name: string) => void;
-  isSuperAdmin: boolean;
 }
 
-type TabType = 'staff' | 'schedule' | 'dates' | 'branding' | 'reports' | 'companies';
+type TabType = 'staff' | 'schedule' | 'dates' | 'branding' | 'reports';
 
 const StaffModal: React.FC<StaffModalProps> = ({ 
   isOpen, 
@@ -66,17 +62,12 @@ const StaffModal: React.FC<StaffModalProps> = ({
   onUpdateClientName,
   adminPassword,
   onUpdateAdminPassword,
-  schedules,
-  allCompanies,
-  onAddCompany,
-  isSuperAdmin
+  schedules
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>('staff');
   const [newProName, setNewProName] = useState('');
   const [newDate, setNewDate] = useState('');
   const [newTime, setNewTime] = useState('');
-  const [newCompanySlug, setNewCompanySlug] = useState('');
-  const [newCompanyName, setNewCompanyName] = useState('');
   const [selectedProForConfig, setSelectedProForConfig] = useState<string>('global');
   const [confirmDeleteTime, setConfirmDeleteTime] = useState<string | null>(null);
   const [confirmClearAll, setConfirmClearAll] = useState(false);
@@ -104,17 +95,6 @@ const StaffModal: React.FC<StaffModalProps> = ({
     if (newTime) {
       onAddTime(newTime, selectedProForConfig);
       setNewTime('');
-    }
-  };
-
-  const handleAddCompany = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (newCompanySlug.trim() && newCompanyName.trim()) {
-      // Basic slug validation: lowercase, no spaces
-      const slug = newCompanySlug.trim().toLowerCase().replace(/\s+/g, '-');
-      onAddCompany(slug, newCompanyName.trim());
-      setNewCompanySlug('');
-      setNewCompanyName('');
     }
   };
 
@@ -185,15 +165,6 @@ const StaffModal: React.FC<StaffModalProps> = ({
               <BarChart2 size={20} />
               <span className="hidden sm:inline font-bold text-sm">Relatórios</span>
             </button>
-            {isSuperAdmin && (
-              <button 
-                onClick={() => setActiveTab('companies')}
-                className={`flex items-center gap-3 p-3 rounded-2xl transition-all ${activeTab === 'companies' ? 'bg-corporate-blue text-white shadow-lg shadow-blue-900/20' : 'text-slate-500 hover:bg-slate-100'}`}
-              >
-                <Building2 size={20} />
-                <span className="hidden sm:inline font-bold text-sm">Empresas</span>
-              </button>
-            )}
           </div>
 
           {/* Content Area */}
@@ -558,69 +529,6 @@ const StaffModal: React.FC<StaffModalProps> = ({
                         <span className="text-xl font-black text-corporate-blue">{stat.bookings}</span>
                         <span className="text-[10px] font-bold text-slate-400 uppercase">Sessões</span>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* COMPANIES TAB */}
-            {activeTab === 'companies' && isSuperAdmin && (
-              <div className="animate-fade-in">
-                <h4 className="text-lg font-black text-corporate-blue mb-6">Gerenciar Empresas (Multi-Tenant)</h4>
-                
-                <form onSubmit={handleAddCompany} className="mb-8 space-y-4 bg-slate-50 p-6 rounded-2xl border border-slate-100">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Identificador (slug)</label>
-                      <input
-                        type="text"
-                        value={newCompanySlug}
-                        onChange={(e) => setNewCompanySlug(e.target.value)}
-                        placeholder="ex: empresa-x"
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-corporate-blue outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Nome da Empresa</label>
-                      <input
-                        type="text"
-                        value={newCompanyName}
-                        onChange={(e) => setNewCompanyName(e.target.value)}
-                        placeholder="Nome Visível"
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-corporate-blue outline-none"
-                      />
-                    </div>
-                  </div>
-                  <button 
-                    type="submit"
-                    className="w-full bg-corporate-blue text-white px-4 py-3 rounded-xl hover:bg-blue-800 flex items-center justify-center gap-2 font-bold shadow-lg shadow-blue-900/20"
-                  >
-                    <Plus size={20} /> Cadastrar Nova Empresa
-                  </button>
-                </form>
-
-                <div className="space-y-3">
-                  <h6 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Empresas Cadastradas</h6>
-                  {allCompanies.map((comp) => (
-                    <div key={comp.slug} className="flex items-center justify-between p-4 bg-white rounded-xl border border-slate-100 shadow-sm hover:shadow-md transition-all">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center text-corporate-blue">
-                          <Building2 size={20} />
-                        </div>
-                        <div>
-                          <span className="font-bold text-slate-700 block">{comp.name}</span>
-                          <span className="text-[10px] font-mono text-slate-400">/{comp.slug}</span>
-                        </div>
-                      </div>
-                      <a 
-                        href={`/${comp.slug}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs font-bold text-blue-600 hover:text-blue-800 bg-blue-50 px-3 py-1.5 rounded-lg transition-colors"
-                      >
-                        Acessar Agenda
-                      </a>
                     </div>
                   ))}
                 </div>
