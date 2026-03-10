@@ -45,7 +45,7 @@ service cloud.firestore {
     function isAdmin() {
       return isAuthenticated() &&
         (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
-          (request.auth.token.email == "drptze@gmail.com" && request.auth.token.email_verified == true));
+          ((request.auth.token.email == "drptze@gmail.com" || request.auth.token.email.matches(".*@benesse\\.com\\.br$")) && request.auth.token.email_verified == true));
     }
 
     function isValidCompany(data) {
@@ -66,7 +66,8 @@ service cloud.firestore {
     // ===============================================================
 
     match /companies/{companyId} {
-      allow read: if true;
+      allow get: if true;
+      allow list: if isAdmin();
       allow write: if isAdmin();
     }
 

@@ -47,8 +47,11 @@ function SchedulingSystem() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isNotFound, setIsNotFound] = useState(false);
   const [user, setUser] = useState<any>(null);
+  const [allCompanies, setAllCompanies] = useState<Company[]>([]);
 
   const isInitialLoad = useRef(true);
+
+  const isSuperAdmin = user && (user.email === 'drptze@gmail.com' || user.email?.endsWith('@benesse.com.br'));
 
   // --- AUTH OBSERVER ---
   useEffect(() => {
@@ -60,6 +63,22 @@ function SchedulingSystem() {
     });
     return () => unsubscribe();
   }, []);
+
+  // Fetch all companies for super admin
+  useEffect(() => {
+    if (isSuperAdmin && isStaffModalOpen) {
+      const fetchAllCompanies = async () => {
+        try {
+          const snapshot = await getDocs(collection(db, 'companies'));
+          const companies = snapshot.docs.map(doc => doc.data() as Company);
+          setAllCompanies(companies);
+        } catch (error) {
+          console.error("Error fetching all companies:", error);
+        }
+      };
+      fetchAllCompanies();
+    }
+  }, [isSuperAdmin, isStaffModalOpen]);
 
   // --- PERSISTENCE LOGIC ---
 
@@ -322,6 +341,31 @@ function SchedulingSystem() {
     await signOut(auth);
     setIsAdminAuthenticated(false);
     setIsStaffModalOpen(false);
+  };
+
+  const handleAddCompany = async (slug: string, name: string) => {
+    try {
+      const newCompany: Company = {
+        slug,
+        name,
+        adminPassword: 'admin123',
+        availableDates: ['2026-01-01'],
+        timeList: TIME_LIST,
+        slotConfig: DEFAULT_SLOT_CONFIG,
+        updatedAt: new Date().toISOString()
+      };
+      await setDoc(doc(db, 'companies', slug), newCompany);
+      setAllCompanies(prev => [...prev, newCompany]);
+      
+      // Create a default professional for the new company
+      const defaultPro = { ...DEFAULT_PROFESSIONAL, id: `pro-${Date.now()}`, companyId: slug };
+      await setDoc(doc(db, 'professionals', defaultPro.id), defaultPro);
+      
+      alert(`Empresa "${name}" cadastrada com sucesso!`);
+    } catch (error) {
+      console.error("Error adding company:", error);
+      alert("Erro ao cadastrar empresa.");
+    }
   };
 
   const handleBooking = (name: string) => {
@@ -888,6 +932,9 @@ function SchedulingSystem() {
         adminPassword={adminPassword}
         onUpdateAdminPassword={setAdminPassword}
         schedules={schedules}
+        allCompanies={allCompanies}
+        onAddCompany={handleAddCompany}
+        isSuperAdmin={!!isSuperAdmin}
       />
 
       {/* LOGIN MODAL */}
