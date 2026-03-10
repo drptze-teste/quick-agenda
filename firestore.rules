@@ -1,0 +1,87 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: companies
+    // Document ID: companySlug (e.g., 'empresa-a')
+    // Fields:
+    //   - slug: string (required)
+    //   - name: string (required)
+    //   - logoUrl: string (optional)
+    //   - adminPassword: string (optional)
+    //   - availableDates: list (optional)
+    //   - timeList: list (optional)
+    //   - slotConfig: map (optional)
+    //   - updatedAt: string (optional)
+    //
+    // Collection: professionals
+    // Document ID: professionalId
+    // Fields:
+    //   - id: string (required)
+    //   - name: string (required)
+    //   - companyId: string (required)
+    //   - slotConfig: map (optional)
+    //   - timeList: list (optional)
+    //
+    // Collection: schedules
+    // Document ID: date::professionalId
+    // Fields:
+    //   - slots: list (required)
+    //   - companyId: string (required)
+    //   - updatedAt: string (optional)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "drptze@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isValidCompany(data) {
+      return data.slug is string && data.slug.size() > 0 && data.slug.size() < 50 &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100;
+    }
+
+    function isValidProfessional(data) {
+      return data.id is string && data.name is string && data.companyId is string;
+    }
+
+    function isValidSchedule(data) {
+      return data.slots is list && data.companyId is string;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /companies/{companyId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /professionals/{professionalId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /schedules/{scheduleId} {
+      allow read: if true;
+      allow write: if true; // Allow public booking, but we should validate slots
+    }
+
+    match /users/{userId} {
+      allow read, write: if isAdmin() || request.auth.uid == userId;
+    }
+  }
+}

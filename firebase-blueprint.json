@@ -1,0 +1,58 @@
+{
+  "entities": {
+    "Company": {
+      "title": "Company",
+      "description": "Settings for a specific company or team",
+      "type": "object",
+      "properties": {
+        "slug": { "type": "string", "description": "URL slug for the company" },
+        "name": { "type": "string", "description": "Display name of the company" },
+        "logoUrl": { "type": "string", "description": "URL of the company logo" },
+        "adminPassword": { "type": "string", "description": "Password for the admin panel" },
+        "availableDates": { "type": "array", "items": { "type": "string" } },
+        "timeList": { "type": "array", "items": { "type": "string" } },
+        "slotConfig": { "type": "object" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["slug", "name"]
+    },
+    "Professional": {
+      "title": "Professional",
+      "description": "A massotherapist professional",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "companyId": { "type": "string", "description": "ID of the company this professional belongs to" },
+        "slotConfig": { "type": "object" },
+        "timeList": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["id", "name", "companyId"]
+    },
+    "Schedule": {
+      "title": "Schedule",
+      "description": "A daily schedule for a professional",
+      "type": "object",
+      "properties": {
+        "slots": { "type": "array", "items": { "type": "object" } },
+        "companyId": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["slots", "companyId"]
+    }
+  },
+  "firestore": {
+    "/companies/{companyId}": {
+      "schema": "Company",
+      "description": "Company settings"
+    },
+    "/professionals/{professionalId}": {
+      "schema": "Professional",
+      "description": "Professional data"
+    },
+    "/schedules/{scheduleId}": {
+      "schema": "Schedule",
+      "description": "Daily schedules"
+    }
+  }
+}

@@ -16,6 +16,7 @@ export interface BookingResponse {
 export interface Professional {
   id: string;
   name: string;
+  companyId: string;
   slotConfig?: SlotConfig;
   timeList?: string[];
 }
@@ -23,4 +24,15 @@ export interface Professional {
 // Maps a time string (e.g. "10:00") to its default type
 export interface SlotConfig {
   [time: string]: 'available' | 'break' | 'lunch';
+}
+
+export interface Company {
+  slug: string;
+  name: string;
+  logoUrl?: string;
+  adminPassword?: string;
+  availableDates?: string[];
+  timeList?: string[];
+  slotConfig?: SlotConfig;
+  updatedAt?: string;
 }

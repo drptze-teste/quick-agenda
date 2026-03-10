@@ -1,173 +1,147 @@
-import {
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  getDocs,
-  writeBatch,
-} from "firebase/firestore";
-import {
-  CalendarDays,
-  ChevronDown,
-  CloudOff,
-  Flower2,
-  LayoutGrid,
-  List,
-  Printer,
-  Settings,
-  Sparkles,
-  Trash2,
-  UserCircle,
-  Users,
-} from "lucide-react";
-import React, { useEffect, useRef, useState } from "react";
-import BenesseLogo from "./components/BenesseLogo";
-import BookingModal from "./components/BookingModal";
-import SlotItem from "./components/SlotItem";
-import StaffModal from "./components/StaffModal";
-import {
-  DEFAULT_PROFESSIONAL,
-  DEFAULT_SLOT_CONFIG,
-  INITIAL_SLOTS,
-  TIME_LIST,
-} from "./constants";
-import { db } from "./lib/firebase";
-import { getScheduleSummary } from "./services/geminiService";
-import { Professional, SlotConfig, TimeSlot } from "./types";
 
-export default function App() {
+import React, { useState, useEffect, useRef } from 'react';
+import { Routes, Route, useParams, useNavigate, Navigate } from 'react-router-dom';
+import { INITIAL_SLOTS, generateScheduleFromConfig, DEFAULT_SLOT_CONFIG, DEFAULT_PROFESSIONAL, TIME_LIST, DEFAULT_COMPANIES } from './constants';
+import { TimeSlot, Professional, SlotConfig, Company } from './types';
+import SlotItem from './components/SlotItem';
+import { LayoutGrid, List, Sparkles, Flower2, CalendarDays, Users, UserCircle, ChevronDown, Settings, CloudOff, Cloud, Printer, Trash2, Building2 } from 'lucide-react';
+import BookingModal from './components/BookingModal';
+import BenesseLogo from './components/BenesseLogo';
+import StaffModal from './components/StaffModal';
+import { getScheduleSummary } from './services/geminiService';
+import { db, auth } from './lib/firebase';
+import { doc, getDoc, setDoc, collection, getDocs, writeBatch, deleteDoc, query, where } from 'firebase/firestore';
+import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from 'firebase/auth';
+
+function SchedulingSystem() {
+  const { companySlug } = useParams<{ companySlug: string }>();
+  const navigate = useNavigate();
+  
   // --- CONFIGURATION STATE ---
+  const [company, setCompany] = useState<Company | null>(null);
   const [slotConfig, setSlotConfig] = useState<SlotConfig>(DEFAULT_SLOT_CONFIG);
-  const [availableDates, setAvailableDates] = useState<string[]>([
-    "2026-01-01",
-  ]);
+  const [availableDates, setAvailableDates] = useState<string[]>(['2026-01-01']);
   const [timeList, setTimeList] = useState<string[]>(TIME_LIST);
-  const [logoUrl, setLogoUrl] = useState<string>("");
-  const [clientName, setClientName] = useState<string>("Cescon Barrieu");
-  const [adminPassword, setAdminPassword] = useState<string>("admin123");
+  const [logoUrl, setLogoUrl] = useState<string>('');
+  const [clientName, setClientName] = useState<string>('Carregando...');
+  const [adminPassword, setAdminPassword] = useState<string>('admin123');
 
   // --- APP STATE ---
-  const [currentDate, setCurrentDate] = useState<string>("2026-01-01");
-  const [professionals, setProfessionals] = useState<Professional[]>([
-    DEFAULT_PROFESSIONAL,
-  ]);
-  const [selectedProfessionalId, setSelectedProfessionalId] = useState<string>(
-    DEFAULT_PROFESSIONAL.id
-  );
-
-  const [schedules, setSchedules] = useState<Record<string, TimeSlot[]>>({
-    [`2026-01-01::${DEFAULT_PROFESSIONAL.id}`]: INITIAL_SLOTS,
-  });
+  const [currentDate, setCurrentDate] = useState<string>('2026-01-01');
+  const [professionals, setProfessionals] = useState<Professional[]>([]);
+  const [selectedProfessionalId, setSelectedProfessionalId] = useState<string>('');
+  
+  const [schedules, setSchedules] = useState<Record<string, TimeSlot[]>>({});
 
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
-  const [loginInput, setLoginInput] = useState("");
-  const [loginError, setLoginError] = useState("");
-  const [viewMode, setViewMode] = useState<"dashboard" | "list">("dashboard");
+  const [loginInput, setLoginInput] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [viewMode, setViewMode] = useState<'dashboard' | 'list'>('dashboard');
   const [summary, setSummary] = useState<string>("");
   const [isLoadingSummary, setIsLoadingSummary] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isNotFound, setIsNotFound] = useState(false);
+  const [user, setUser] = useState<any>(null);
 
   const isInitialLoad = useRef(true);
 
+  // --- AUTH OBSERVER ---
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      if (currentUser && (currentUser.email === 'drptze@gmail.com' || currentUser.email?.endsWith('@benesse.com.br'))) {
+        setIsAdminAuthenticated(true);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
   // --- PERSISTENCE LOGIC ---
 
-  // Load data on mount
+  // Load data on mount or slug change
   useEffect(() => {
+    if (!companySlug) return;
+
     const loadData = async () => {
       try {
         setIsSyncing(true);
-        // 1. Fetch settings from Firestore
-        const settingsDoc = await getDoc(doc(db, "settings", "default"));
-        const settings = settingsDoc.exists() ? settingsDoc.data() : {};
+        setIsNotFound(false);
 
-        // 2. Fetch professionals
-        const professionalsSnapshot = await getDocs(
-          collection(db, "professionals")
-        );
-        const professionalsData = professionalsSnapshot.docs.map((doc) => ({
+        // 1. Fetch Company Settings
+        const companyDoc = await getDoc(doc(db, 'companies', companySlug));
+        
+        if (!companyDoc.exists()) {
+          // Check if it's one of the default companies
+          const defaultInfo = DEFAULT_COMPANIES.find(c => c.slug === companySlug);
+          if (defaultInfo) {
+            // Initialize default company
+            const newCompany: Company = {
+              ...defaultInfo,
+              adminPassword: 'admin123',
+              availableDates: ['2026-01-01'],
+              timeList: TIME_LIST,
+              slotConfig: DEFAULT_SLOT_CONFIG,
+              updatedAt: new Date().toISOString()
+            };
+            await setDoc(doc(db, 'companies', companySlug), newCompany);
+            setCompany(newCompany);
+            setSlotConfig(DEFAULT_SLOT_CONFIG);
+            setAvailableDates(['2026-01-01']);
+            setTimeList(TIME_LIST);
+            setClientName(defaultInfo.name);
+            setAdminPassword('admin123');
+          } else {
+            setIsNotFound(true);
+            return;
+          }
+        } else {
+          const data = companyDoc.data() as Company;
+          setCompany(data);
+          setSlotConfig(data.slotConfig || DEFAULT_SLOT_CONFIG);
+          setAvailableDates(data.availableDates || ['2026-01-01']);
+          setTimeList(data.timeList || TIME_LIST);
+          setLogoUrl(data.logoUrl || '');
+          setClientName(data.name || 'Empresa');
+          setAdminPassword(data.adminPassword || 'admin123');
+        }
+
+        // 2. Fetch professionals for this company
+        const qPros = query(collection(db, 'professionals'), where('companyId', '==', companySlug));
+        const professionalsSnapshot = await getDocs(qPros);
+        let professionalsData = professionalsSnapshot.docs.map(doc => ({
           id: doc.id,
-          ...doc.data(),
+          ...doc.data()
         })) as Professional[];
 
-        // 3. Fetch schedules
-        const schedulesSnapshot = await getDocs(collection(db, "schedules"));
+        if (professionalsData.length === 0) {
+          // Create a default professional for new companies
+          const defaultPro = { ...DEFAULT_PROFESSIONAL, companyId: companySlug };
+          await setDoc(doc(db, 'professionals', defaultPro.id), defaultPro);
+          professionalsData = [defaultPro];
+        }
+        
+        setProfessionals(professionalsData);
+        setSelectedProfessionalId(professionalsData[0].id);
+
+        // 3. Fetch schedules for this company
+        const qSchedules = query(collection(db, 'schedules'), where('companyId', '==', companySlug));
+        const schedulesSnapshot = await getDocs(qSchedules);
         const schedulesMap: Record<string, TimeSlot[]> = {};
-        schedulesSnapshot.docs.forEach((doc) => {
+        schedulesSnapshot.docs.forEach(doc => {
           schedulesMap[doc.id] = doc.data()?.slots;
         });
 
-        if (
-          Object.keys(schedulesMap).length > 0 ||
-          professionalsData.length > 0
-        ) {
-          setSchedules(schedulesMap);
-          setSlotConfig(settings?.slotConfig || DEFAULT_SLOT_CONFIG);
-          setProfessionals(
-            professionalsData.length > 0
-              ? professionalsData
-              : [DEFAULT_PROFESSIONAL]
-          );
-          setAvailableDates(
-            settings?.availableDates?.length > 0
-              ? settings.availableDates
-              : ["2026-01-01"]
-          );
-          setTimeList(settings?.timeList || TIME_LIST);
-          setLogoUrl(settings?.logoUrl || "");
-          setClientName(settings?.clientName || "Cescon Barrieu");
-          setAdminPassword(settings?.adminPassword || "admin123");
-          setIsOnline(true);
-
-          // Sync to local storage as backup
-          localStorage.setItem(
-            "benesse_data",
-            JSON.stringify({
-              schedules: schedulesMap,
-              slotConfig: settings?.slotConfig,
-              professionals: professionalsData,
-              availableDates: settings?.availableDates,
-              timeList: settings?.timeList,
-              logoUrl: settings?.logoUrl,
-              clientName: settings?.clientName,
-              adminPassword: settings?.adminPassword,
-            })
-          );
-        }
+        setSchedules(schedulesMap);
+        setIsOnline(true);
+        
       } catch (error) {
-        console.warn(
-          "Could not load from Firebase, trying localStorage...",
-          error
-        );
+        console.error('Error loading company data:', error);
         setIsOnline(false);
-
-        // 2. Fallback to LocalStorage
-        const localData = localStorage.getItem("benesse_data");
-        if (localData) {
-          const data = JSON.parse(localData);
-          if (data.schedules && Object.keys(data.schedules).length > 0) {
-            setSchedules(data.schedules);
-            setSlotConfig(data.slotConfig || DEFAULT_SLOT_CONFIG);
-            setProfessionals(
-              data.professionals?.length > 0
-                ? data.professionals
-                : [DEFAULT_PROFESSIONAL]
-            );
-            setAvailableDates(
-              data.availableDates?.length > 0
-                ? data.availableDates
-                : ["2026-01-01"]
-            );
-            setTimeList(data.timeList || TIME_LIST);
-            setLogoUrl(data.logoUrl || "");
-            setClientName(data.clientName || "Cescon Barrieu");
-            setAdminPassword(data.adminPassword || "admin123");
-          }
-        }
       } finally {
         isInitialLoad.current = false;
         setIsSyncing(false);
@@ -175,158 +149,124 @@ export default function App() {
     };
 
     loadData();
-  }, []);
+  }, [companySlug]);
 
   // Save data on change
   useEffect(() => {
-    if (isInitialLoad.current) return;
+    if (isInitialLoad.current || !companySlug) return;
 
     const saveData = async () => {
-      const dataToSave = {
-        schedules,
-        slotConfig,
-        professionals,
-        availableDates,
-        timeList,
-        logoUrl,
-        clientName,
-        adminPassword,
-      };
-
-      // Always save to localStorage first (offline safety)
-      localStorage.setItem("benesse_data", JSON.stringify(dataToSave));
-
-      // Try to sync with Firebase
       try {
         setIsSyncing(true);
         const batch = writeBatch(db);
 
-        // 1. Update Settings
-        const settingsRef = doc(db, "settings", "default");
-        batch.set(
-          settingsRef,
-          {
-            logoUrl: logoUrl || "",
-            clientName: clientName || "Cescon Barrieu",
-            availableDates: availableDates || [],
-            timeList: timeList || [],
-            slotConfig: slotConfig || {},
-            adminPassword: adminPassword || "admin123",
-            updatedAt: new Date().toISOString(),
-          },
-          { merge: true }
-        );
+        // 1. Update Company Settings
+        const companyRef = doc(db, 'companies', companySlug);
+        batch.set(companyRef, {
+          slug: companySlug,
+          name: clientName,
+          logoUrl: logoUrl || '',
+          availableDates: availableDates || [],
+          timeList: timeList || [],
+          slotConfig: slotConfig || {},
+          adminPassword: adminPassword || 'admin123',
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
 
         // 2. Update Professionals
-        if (professionals && Array.isArray(professionals)) {
-          for (const pro of professionals) {
-            const proRef = doc(db, "professionals", pro.id);
-            batch.set(
-              proRef,
-              {
-                name: pro.name,
-                slotConfig: pro.slotConfig || {},
-                timeList: pro.timeList || null,
-              },
-              { merge: true }
-            );
-          }
+        for (const pro of professionals) {
+          const proRef = doc(db, 'professionals', pro.id);
+          batch.set(proRef, {
+            name: pro.name,
+            companyId: companySlug,
+            slotConfig: pro.slotConfig || {},
+            timeList: pro.timeList || null
+          }, { merge: true });
         }
 
         // 3. Update Schedules
-        if (schedules) {
-          for (const [key, slots] of Object.entries(schedules)) {
-            if (!slots) continue;
+        for (const [key, slots] of Object.entries(schedules)) {
+          if (!slots) continue;
+          
+          const scheduleRef = doc(db, 'schedules', key);
+          const cleanSlots = slots.map(slot => {
+            const s = { ...slot };
+            if (s.attendeeName === undefined) delete s.attendeeName;
+            return s;
+          });
 
-            const scheduleRef = doc(db, "schedules", key);
-            // Clean slots of undefined values for Firestore
-            const cleanSlots = slots.map((slot) => {
-              const s = { ...slot };
-              if (s.attendeeName === undefined) {
-                delete s.attendeeName;
-              }
-              return s;
-            });
-
-            batch.set(
-              scheduleRef,
-              {
-                slots: cleanSlots,
-                updatedAt: new Date().toISOString(),
-              },
-              { merge: true }
-            );
-          }
+          batch.set(scheduleRef, {
+            slots: cleanSlots,
+            companyId: companySlug,
+            updatedAt: new Date().toISOString()
+          }, { merge: true });
         }
 
         await batch.commit();
         setIsOnline(true);
       } catch (error) {
-        console.error("Firebase save error:", error);
+        console.error('Firebase save error:', error);
         setIsOnline(false);
       } finally {
         setIsSyncing(false);
       }
     };
 
-    // Debounce saving
-    const timeout = setTimeout(saveData, 1000);
+    const timeout = setTimeout(saveData, 1500);
     return () => clearTimeout(timeout);
-  }, [
-    schedules,
-    slotConfig,
-    professionals,
-    availableDates,
-    timeList,
-    logoUrl,
-    clientName,
-  ]);
+  }, [schedules, slotConfig, professionals, availableDates, timeList, logoUrl, clientName, companySlug]);
+
+  if (isNotFound) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-8 text-center">
+        <Building2 size={64} className="text-slate-300 mb-4" />
+        <h1 className="text-2xl font-bold text-slate-800 mb-2">Empresa não encontrada</h1>
+        <p className="text-slate-500 mb-6">O endereço que você acessou não está cadastrado em nosso sistema.</p>
+        <button 
+          onClick={() => navigate('/empresa-a')}
+          className="px-6 py-2 bg-corporate-blue text-white rounded-full font-bold"
+        >
+          Ir para Empresa A
+        </button>
+      </div>
+    );
+  }
 
   // --- HELPERS ---
 
   // Helper to generate key
   const getScheduleKey = (date: string, proId: string) => `${date}::${proId}`;
 
-  const selectedProfessional =
-    professionals.find((p) => p.id === selectedProfessionalId) ||
-    professionals[0];
+  const selectedProfessional = professionals.find(p => p.id === selectedProfessionalId) || professionals[0];
   const activeTimeList = selectedProfessional?.timeList || timeList;
-
+  
   // Merge global config with professional config for the current view
   const proSlotConfig = {
     ...slotConfig,
-    ...(selectedProfessional?.slotConfig || {}),
+    ...(selectedProfessional?.slotConfig || {})
   };
 
   // Get current slots. If not found in state, we'll build it from config
-  const currentScheduleKey = getScheduleKey(
-    currentDate,
-    selectedProfessionalId
-  );
+  const currentScheduleKey = getScheduleKey(currentDate, selectedProfessionalId);
   const savedSlots = (schedules || {})[currentScheduleKey] || [];
 
   // Always build the schedule based on the current timeList to ensure updates reflect immediately
   const currentSlots = activeTimeList.map((time, index) => {
     // Try to find a saved slot for this time
-    const savedSlot = savedSlots.find((s) => s.time === time);
-
+    const savedSlot = savedSlots.find(s => s.time === time);
+    
     // If it's booked, we keep the booking
-    if (savedSlot && savedSlot.type === "booked") {
+    if (savedSlot && savedSlot.type === 'booked') {
       return savedSlot;
     }
 
     // Otherwise, use the current config (global + pro override)
-    const configType = proSlotConfig[time] || slotConfig[time] || "available";
+    const configType = proSlotConfig[time] || slotConfig[time] || 'available';
     return {
       id: savedSlot?.id || `slot-${index}-${time}`,
       time,
       type: configType,
-      attendeeName:
-        configType === "lunch"
-          ? "Almoço"
-          : configType === "break"
-          ? "Intervalo"
-          : undefined,
+      attendeeName: configType === 'lunch' ? 'Almoço' : configType === 'break' ? 'Intervalo' : undefined
     };
   });
 
@@ -338,7 +278,7 @@ export default function App() {
   // --- HANDLERS ---
 
   const handleSlotClick = (slot: TimeSlot) => {
-    if (slot.type === "break" || slot.type === "lunch") return;
+    if (slot.type === 'break' || slot.type === 'lunch') return;
     setSelectedSlot(slot);
     setIsModalOpen(true);
   };
@@ -348,8 +288,8 @@ export default function App() {
       setIsStaffModalOpen(true);
     } else {
       setIsLoginModalOpen(true);
-      setLoginInput("");
-      setLoginError("");
+      setLoginInput('');
+      setLoginError('');
     }
   };
 
@@ -359,175 +299,173 @@ export default function App() {
       setIsAdminAuthenticated(true);
       setIsLoginModalOpen(false);
       setIsStaffModalOpen(true);
+      setLoginInput('');
+      setLoginError('');
     } else {
-      setLoginError("Senha incorreta");
+      setLoginError('Senha incorreta');
     }
+  };
+
+  const handleGoogleLogin = async () => {
+    try {
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+      setIsLoginModalOpen(false);
+      setIsStaffModalOpen(true);
+    } catch (error) {
+      console.error("Erro no login Google:", error);
+      setLoginError('Falha ao autenticar com Google');
+    }
+  };
+
+  const handleLogout = async () => {
+    await signOut(auth);
+    setIsAdminAuthenticated(false);
+    setIsStaffModalOpen(false);
   };
 
   const handleBooking = (name: string) => {
     if (!selectedSlot) return;
 
-    const newSlots = currentSlots.map((s) =>
-      s.id === selectedSlot.id
-        ? { ...s, type: "booked" as const, attendeeName: name }
-        : s
+    const newSlots = currentSlots.map(s => 
+      s.id === selectedSlot.id ? { ...s, type: 'booked' as const, attendeeName: name } : s
     );
 
-    setSchedules((prev) => ({
+    setSchedules(prev => ({
       ...prev,
-      [currentScheduleKey]: newSlots,
+      [currentScheduleKey]: newSlots
     }));
-
+    
     setIsModalOpen(false);
     setSelectedSlot(null);
   };
 
   const handleDirectCancel = (slot: TimeSlot) => {
-    if (
-      !window.confirm(`Deseja cancelar o agendamento de ${slot.attendeeName}?`)
-    )
-      return;
+    if (!window.confirm(`Deseja cancelar o agendamento de ${slot.attendeeName}?`)) return;
 
-    const newSlots = currentSlots.map((s) => {
+    const newSlots = currentSlots.map(s => {
       if (s.id === slot.id) {
         const { attendeeName, ...rest } = s;
-        return { ...rest, type: "available" as const };
+        return { ...rest, type: 'available' as const };
       }
       return s;
     });
 
-    setSchedules((prev) => ({
+    setSchedules(prev => ({
       ...prev,
-      [currentScheduleKey]: newSlots,
+      [currentScheduleKey]: newSlots
     }));
   };
 
   const handleAddProfessional = (name: string) => {
-    const newPro = { id: `pro-${Date.now()}`, name };
-    setProfessionals((prev) => [...prev, newPro]);
+    const newPro: Professional = { 
+      id: `pro-${Date.now()}`, 
+      name, 
+      companyId: companySlug || '' 
+    };
+    setProfessionals(prev => [...prev, newPro]);
   };
 
   const handleRemoveProfessional = async (id: string) => {
     if (professionals.length <= 1) return;
-
+    
     // 1. Update local state immediately
-    setProfessionals((prev) => prev.filter((p) => p.id !== id));
+    setProfessionals(prev => prev.filter(p => p.id !== id));
     if (selectedProfessionalId === id) {
-      setSelectedProfessionalId(
-        professionals.find((p) => p.id !== id)?.id || ""
-      );
+      setSelectedProfessionalId(professionals.find(p => p.id !== id)?.id || '');
     }
 
     // 2. Persist deletion to Firestore
     try {
-      await deleteDoc(doc(db, "professionals", id));
-
+      await deleteDoc(doc(db, 'professionals', id));
+      
       // Cleanup: delete all schedules associated with this professional
-      const schedulesSnapshot = await getDocs(collection(db, "schedules"));
+      const schedulesSnapshot = await getDocs(collection(db, 'schedules'));
       const batch = writeBatch(db);
       let deletedCount = 0;
-      schedulesSnapshot.docs.forEach((doc) => {
+      schedulesSnapshot.docs.forEach(doc => {
         if (doc.id.endsWith(`::${id}`)) {
           batch.delete(doc.ref);
           deletedCount++;
         }
       });
-
+      
       if (deletedCount > 0) {
         await batch.commit();
-        console.log(
-          `App: Deleted professional ${id} and ${deletedCount} associated schedules.`
-        );
+        console.log(`App: Deleted professional ${id} and ${deletedCount} associated schedules.`);
       } else {
-        console.log(
-          `App: Deleted professional ${id}. No associated schedules found.`
-        );
+        console.log(`App: Deleted professional ${id}. No associated schedules found.`);
       }
     } catch (error) {
-      console.error("App: Error removing professional from Firestore:", error);
+      console.error('App: Error removing professional from Firestore:', error);
     }
   };
 
-  const handleUpdateSlotConfig = (
-    time: string,
-    type: "available" | "break" | "lunch"
-  ) => {
-    setSlotConfig((prev) => ({
+  const handleUpdateSlotConfig = (time: string, type: 'available' | 'break' | 'lunch') => {
+    setSlotConfig(prev => ({
       ...prev,
-      [time]: type,
+      [time]: type
     }));
   };
 
-  const handleUpdateProfessionalSlotConfig = (
-    proId: string,
-    time: string,
-    type: "available" | "break" | "lunch"
-  ) => {
-    setProfessionals((prev) =>
-      prev.map((p) => {
-        if (p.id === proId) {
-          return {
-            ...p,
-            slotConfig: {
-              ...(p.slotConfig || {}),
-              [time]: type,
-            },
-          };
-        }
-        return p;
-      })
-    );
+  const handleUpdateProfessionalSlotConfig = (proId: string, time: string, type: 'available' | 'break' | 'lunch') => {
+    setProfessionals(prev => prev.map(p => {
+      if (p.id === proId) {
+        return {
+          ...p,
+          slotConfig: {
+            ...(p.slotConfig || {}),
+            [time]: type
+          }
+        };
+      }
+      return p;
+    }));
   };
 
   const handleAddTime = (time: string, proId?: string) => {
-    if (proId && proId !== "global") {
-      setProfessionals((prev) =>
-        prev.map((p) => {
-          if (p.id === proId) {
-            const currentList = p.timeList || [...timeList];
-            if (!currentList.includes(time)) {
-              return { ...p, timeList: [...currentList, time].sort() };
-            }
+    if (proId && proId !== 'global') {
+      setProfessionals(prev => prev.map(p => {
+        if (p.id === proId) {
+          const currentList = p.timeList || [...timeList];
+          if (!currentList.includes(time)) {
+            return { ...p, timeList: [...currentList, time].sort() };
           }
-          return p;
-        })
-      );
+        }
+        return p;
+      }));
     } else {
       if (!timeList.includes(time)) {
-        setTimeList((prev) => [...prev, time].sort());
+        setTimeList(prev => [...prev, time].sort());
       }
     }
   };
 
   const handleRemoveTime = (time: string, proId?: string) => {
-    console.log("App: handleRemoveTime called for:", time, "pro:", proId);
-
+    console.log('App: handleRemoveTime called for:', time, 'pro:', proId);
+    
     let updatedProfessionals = [...professionals];
 
     // 1. Update Configuration
-    if (proId && proId !== "global") {
-      updatedProfessionals = professionals.map((p) => {
+    if (proId && proId !== 'global') {
+      updatedProfessionals = professionals.map(p => {
         if (p.id === proId) {
           const currentList = p.timeList || [...timeList];
-          const newList = currentList.filter((t) => t !== time);
-          console.log(
-            `App: Updating pro ${p.name} timeList. Old size: ${currentList.length}, New size: ${newList.length}`
-          );
+          const newList = currentList.filter(t => t !== time);
+          console.log(`App: Updating pro ${p.name} timeList. Old size: ${currentList.length}, New size: ${newList.length}`);
           return { ...p, timeList: newList.length > 0 ? newList : undefined };
         }
         return p;
       });
       setProfessionals(updatedProfessionals);
     } else {
-      console.log("App: Global time removal");
-      setTimeList((prev) => {
-        const newList = prev.filter((t) => t !== time);
-        console.log(
-          `App: Global timeList updated. Old size: ${prev.length}, New size: ${newList.length}`
-        );
+      console.log('App: Global time removal');
+      setTimeList(prev => {
+        const newList = prev.filter(t => t !== time);
+        console.log(`App: Global timeList updated. Old size: ${prev.length}, New size: ${newList.length}`);
         return newList.length > 0 ? newList : prev; // Don't fallback to default, just keep current if it would be empty
       });
-      setSlotConfig((prev) => {
+      setSlotConfig(prev => {
         const newConfig = { ...prev };
         delete newConfig[time];
         return newConfig;
@@ -535,97 +473,73 @@ export default function App() {
     }
 
     // 2. Update existing schedules to reflect the removal immediately
-    setSchedules((prev) => {
+    setSchedules(prev => {
       const newSchedules = { ...prev };
       let removedCount = 0;
-      Object.keys(newSchedules).forEach((key) => {
-        const parts = key.split("::");
+      Object.keys(newSchedules).forEach(key => {
+        const parts = key.split('::');
         if (parts.length !== 2) return;
         const keyProId = parts[1];
-
-        if (proId && proId !== "global") {
+        
+        if (proId && proId !== 'global') {
           if (keyProId === proId) {
             const originalLength = newSchedules[key].length;
-            newSchedules[key] = newSchedules[key].filter(
-              (s) => s.time !== time
-            );
-            removedCount += originalLength - newSchedules[key].length;
+            newSchedules[key] = newSchedules[key].filter(s => s.time !== time);
+            removedCount += (originalLength - newSchedules[key].length);
           }
         } else {
-          const pro = updatedProfessionals.find((p) => p.id === keyProId);
+          const pro = updatedProfessionals.find(p => p.id === keyProId);
           if (!pro?.timeList) {
             const originalLength = newSchedules[key].length;
-            newSchedules[key] = newSchedules[key].filter(
-              (s) => s.time !== time
-            );
-            removedCount += originalLength - newSchedules[key].length;
+            newSchedules[key] = newSchedules[key].filter(s => s.time !== time);
+            removedCount += (originalLength - newSchedules[key].length);
           }
         }
       });
       if (removedCount > 0) {
-        console.log(
-          `App: Removed ${removedCount} slots from existing schedules.`
-        );
+        console.log(`App: Removed ${removedCount} slots from existing schedules.`);
       }
       return newSchedules;
     });
   };
 
-  const handleResetToGlobal = (
-    proId: string,
-    type: "timeList" | "slotConfig"
-  ) => {
-    setProfessionals((prev) =>
-      prev.map((p) => {
-        if (p.id === proId) {
-          const newPro = { ...p };
-          if (type === "timeList") delete newPro.timeList;
-          if (type === "slotConfig") delete newPro.slotConfig;
-          return newPro;
-        }
-        return p;
-      })
-    );
+  const handleResetToGlobal = (proId: string, type: 'timeList' | 'slotConfig') => {
+    setProfessionals(prev => prev.map(p => {
+      if (p.id === proId) {
+        const newPro = { ...p };
+        if (type === 'timeList') delete newPro.timeList;
+        if (type === 'slotConfig') delete newPro.slotConfig;
+        return newPro;
+      }
+      return p;
+    }));
   };
 
   const handleClearSchedules = async () => {
-    console.log("Starting handleClearSchedules...");
+    if (!companySlug) return;
+    console.log('Starting handleClearSchedules...');
 
     try {
       setIsSyncing(true);
-
-      // 1. Clear in Firestore
-      console.log("Fetching all schedules from Firestore...");
-      const schedulesSnapshot = await getDocs(collection(db, "schedules"));
-      console.log(
-        `Found ${schedulesSnapshot.size} schedule documents to delete.`
-      );
-
+      
+      // 1. Clear in Firestore for THIS company
+      const q = query(collection(db, 'schedules'), where('companyId', '==', companySlug));
+      const schedulesSnapshot = await getDocs(q);
+      
       const batch = writeBatch(db);
-      schedulesSnapshot.docs.forEach((doc) => {
+      schedulesSnapshot.docs.forEach(doc => {
         batch.delete(doc.ref);
       });
-
+      
       await batch.commit();
-      console.log("Firestore batch delete committed.");
-
+      
       // 2. Clear in State
       setSchedules({});
-
-      // 3. Clear in LocalStorage
-      const localData = localStorage.getItem("benesse_data");
-      if (localData) {
-        const data = JSON.parse(localData);
-        data.schedules = {};
-        localStorage.setItem("benesse_data", JSON.stringify(data));
-      }
-
-      alert("Todos os agendamentos foram apagados com sucesso!");
+      
+      alert('Todos os agendamentos desta empresa foram apagados!');
     } catch (error) {
-      console.error("Error clearing schedules:", error);
-      alert(
-        "Erro ao apagar agendamentos. Verifique sua conexão e tente novamente."
-      );
+      console.error('Error clearing schedules:', error);
+      alert('Erro ao apagar agendamentos.');
     } finally {
       setIsSyncing(false);
     }
@@ -633,53 +547,44 @@ export default function App() {
 
   const handleAddDate = (date: string) => {
     if (!availableDates.includes(date)) {
-      setAvailableDates((prev) => [...prev, date].sort());
+      setAvailableDates(prev => [...prev, date].sort());
     }
   };
 
   const handleRemoveDate = async (date: string) => {
-    if (availableDates.length <= 1) return;
-
+    if (availableDates.length <= 1 || !companySlug) return;
+    
     // 1. Update local state
-    setAvailableDates((prev) => prev.filter((d) => d !== date));
+    setAvailableDates(prev => prev.filter(d => d !== date));
     if (currentDate === date) {
-      setCurrentDate(availableDates.find((d) => d !== date) || "");
+      setCurrentDate(availableDates.find(d => d !== date) || '');
     }
 
-    // 2. Persist cleanup to Firestore
+    // 2. Persist cleanup to Firestore for this company
     try {
-      const schedulesSnapshot = await getDocs(collection(db, "schedules"));
+      const q = query(collection(db, 'schedules'), where('companyId', '==', companySlug));
+      const schedulesSnapshot = await getDocs(q);
       const batch = writeBatch(db);
       let deletedCount = 0;
-      schedulesSnapshot.docs.forEach((doc) => {
+      schedulesSnapshot.docs.forEach(doc => {
         if (doc.id.startsWith(`${date}::`)) {
           batch.delete(doc.ref);
           deletedCount++;
         }
       });
-
+      
       if (deletedCount > 0) {
         await batch.commit();
-        console.log(
-          `App: Deleted date ${date} and ${deletedCount} associated schedules.`
-        );
       }
     } catch (error) {
-      console.error(
-        "App: Error cleaning up schedules for removed date:",
-        error
-      );
+      console.error('App: Error cleaning up schedules for removed date:', error);
     }
   };
 
   const handleGetSummary = async () => {
     setIsLoadingSummary(true);
     try {
-      const summaryText = await getScheduleSummary(
-        currentSlots,
-        selectedProfessional.name,
-        currentDate
-      );
+      const summaryText = await getScheduleSummary(currentSlots, selectedProfessional.name, currentDate);
       setSummary(summaryText);
     } catch (error) {
       setSummary("Não foi possível gerar o resumo no momento.");
@@ -688,24 +593,29 @@ export default function App() {
     }
   };
 
+  if (!professionals.length && !isNotFound) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-corporate-blue"></div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col items-center p-4 sm:p-8 font-sans">
+      
       {/* Sync Status Indicator */}
       <div className="fixed top-4 right-4 z-50 flex items-center gap-2">
         {isSyncing && (
           <div className="flex items-center gap-2 bg-white/80 backdrop-blur px-3 py-1.5 rounded-full shadow-sm border border-blue-100 animate-pulse">
             <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-            <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">
-              Sincronizando...
-            </span>
+            <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Sincronizando...</span>
           </div>
         )}
         {!isOnline && (
           <div className="flex items-center gap-2 bg-red-50 px-3 py-1.5 rounded-full shadow-sm border border-red-100">
             <CloudOff size={14} className="text-red-500" />
-            <span className="text-[10px] font-bold text-red-600 uppercase tracking-wider">
-              Modo Offline
-            </span>
+            <span className="text-[10px] font-bold text-red-600 uppercase tracking-wider">Modo Offline</span>
           </div>
         )}
       </div>
@@ -715,12 +625,7 @@ export default function App() {
         <div className="w-full flex justify-between items-center mb-8">
           <div className="flex items-center gap-4">
             {logoUrl ? (
-              <img
-                src={logoUrl}
-                alt="Logo"
-                className="h-12 w-auto object-contain"
-                referrerPolicy="no-referrer"
-              />
+              <img src={logoUrl} alt="Logo" className="h-12 w-auto object-contain" referrerPolicy="no-referrer" />
             ) : (
               <BenesseLogo />
             )}
@@ -729,41 +634,34 @@ export default function App() {
               {clientName}
             </h1>
           </div>
-
-          <button
+          
+          <button 
             onClick={handleAdminClick}
             className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-full text-slate-600 hover:bg-slate-50 transition-all shadow-sm hover:shadow-md active:scale-95"
           >
             <Settings size={18} />
-            <span className="text-sm font-semibold">Configurações Teste</span>
+            <span className="text-sm font-semibold">Configurações</span>
           </button>
         </div>
 
         <div className="w-full bg-white rounded-3xl p-6 shadow-xl shadow-blue-900/5 border border-blue-50/50">
           <div className="flex flex-col md:flex-row justify-between items-center gap-6">
             <div className="flex flex-col items-center md:items-start">
-              <span className="text-xs font-bold text-blue-500 uppercase tracking-[0.2em] mb-1">
-                Agendamento Online
-              </span>
-              <h2 className="text-3xl font-black text-corporate-blue tracking-tighter">
-                Massoterapia Quick
-              </h2>
+              <span className="text-xs font-bold text-blue-500 uppercase tracking-[0.2em] mb-1">Agendamento Online</span>
+              <h2 className="text-3xl font-black text-corporate-blue tracking-tighter">Massoterapia Quick</h2>
             </div>
 
             <div className="flex items-center gap-3 bg-slate-50 p-2 rounded-2xl border border-slate-100">
               <div className="flex items-center gap-2 px-4 py-2 bg-white rounded-xl shadow-sm border border-slate-200">
                 <CalendarDays size={18} className="text-blue-500" />
-                <select
+                <select 
                   value={currentDate}
                   onChange={(e) => setCurrentDate(e.target.value)}
                   className="bg-transparent border-none outline-none text-sm font-bold text-slate-700 cursor-pointer"
                 >
-                  {availableDates.map((date) => (
+                  {availableDates.map(date => (
                     <option key={date} value={date}>
-                      {new Date(date + "T00:00:00").toLocaleDateString(
-                        "pt-BR",
-                        { day: "2-digit", month: "long" }
-                      )}
+                      {new Date(date + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' })}
                     </option>
                   ))}
                 </select>
@@ -775,52 +673,35 @@ export default function App() {
         {/* Professional Selection Tabs */}
         <div className="mt-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div className="flex overflow-x-auto pb-2 gap-2 scrollbar-hide flex-1">
-            {professionals.map((pro) => (
+            {professionals.map(pro => (
               <button
                 key={pro.id}
                 onClick={() => setSelectedProfessionalId(pro.id)}
                 className={`
                   flex items-center gap-2 px-4 py-2 rounded-full whitespace-nowrap transition-all font-medium text-sm border
-                  ${
-                    selectedProfessionalId === pro.id
-                      ? "bg-corporate-blue text-white border-corporate-blue shadow-md"
-                      : "bg-white text-gray-600 border-gray-200 hover:border-corporate-blue hover:text-corporate-blue"
-                  }
+                  ${selectedProfessionalId === pro.id 
+                    ? 'bg-corporate-blue text-white border-corporate-blue shadow-md' 
+                    : 'bg-white text-gray-600 border-gray-200 hover:border-corporate-blue hover:text-corporate-blue'}
                 `}
               >
-                <UserCircle
-                  size={16}
-                  className={
-                    selectedProfessionalId === pro.id
-                      ? "text-blue-200"
-                      : "text-gray-400"
-                  }
-                />
+                <UserCircle size={16} className={selectedProfessionalId === pro.id ? 'text-blue-200' : 'text-gray-400'} />
                 {pro.name}
               </button>
             ))}
           </div>
 
           <div className="flex bg-gray-100 p-1 rounded-xl border border-gray-200 shrink-0">
-            <button
-              onClick={() => setViewMode("dashboard")}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                viewMode === "dashboard"
-                  ? "bg-white text-corporate-blue shadow-sm"
-                  : "text-gray-500 hover:text-gray-700"
-              }`}
+            <button 
+              onClick={() => setViewMode('dashboard')}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${viewMode === 'dashboard' ? 'bg-white text-corporate-blue shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
               title="Visão Geral"
             >
               <LayoutGrid size={14} />
               <span className="hidden lg:inline">Dashboard</span>
             </button>
-            <button
-              onClick={() => setViewMode("list")}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                viewMode === "list"
-                  ? "bg-white text-corporate-blue shadow-sm"
-                  : "text-gray-500 hover:text-gray-700"
-              }`}
+            <button 
+              onClick={() => setViewMode('list')}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${viewMode === 'list' ? 'bg-white text-corporate-blue shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
               title="Lista Individual"
             >
               <List size={14} />
@@ -836,25 +717,18 @@ export default function App() {
               <Users size={20} className="text-blue-600" />
             </div>
             <div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-1">
-                Profissional Selecionado
-              </p>
-              <h3 className="text-lg font-bold text-slate-800 leading-none">
-                {selectedProfessional.name}
-              </h3>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-1">Profissional Selecionado</p>
+              <h3 className="text-lg font-bold text-slate-800 leading-none">{selectedProfessional.name}</h3>
             </div>
           </div>
 
-          <button
+          <button 
             onClick={handleGetSummary}
             disabled={isLoadingSummary}
             className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-700 rounded-xl text-xs font-bold hover:bg-emerald-100 transition-all border border-emerald-100 disabled:opacity-50"
           >
-            <Sparkles
-              size={14}
-              className={isLoadingSummary ? "animate-spin" : ""}
-            />
-            {isLoadingSummary ? "Analisando..." : "Resumo da Agenda (IA)"}
+            <Sparkles size={14} className={isLoadingSummary ? 'animate-spin' : ''} />
+            {isLoadingSummary ? 'Analisando...' : 'Resumo da Agenda (IA)'}
           </button>
         </div>
 
@@ -868,10 +742,7 @@ export default function App() {
               <div className="text-sm text-slate-600 leading-relaxed italic">
                 {summary}
               </div>
-              <button
-                onClick={() => setSummary("")}
-                className="text-slate-300 hover:text-slate-500"
-              >
+              <button onClick={() => setSummary("")} className="text-slate-300 hover:text-slate-500">
                 <ChevronDown size={16} />
               </button>
             </div>
@@ -881,23 +752,23 @@ export default function App() {
 
       {/* Schedule Grid */}
       <main className="w-full max-w-5xl">
-        {viewMode === "dashboard" ? (
+        {viewMode === 'dashboard' ? (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-4">
             <div className="flex flex-col gap-3">
-              {leftColumnSlots.map((slot) => (
-                <SlotItem
-                  key={`${currentDate}-${selectedProfessionalId}-${slot.id}`}
-                  slot={slot}
+              {leftColumnSlots.map(slot => (
+                <SlotItem 
+                  key={`${currentDate}-${selectedProfessionalId}-${slot.id}`} 
+                  slot={slot} 
                   onSelect={handleSlotClick}
                   onCancel={() => handleDirectCancel(slot)}
                 />
               ))}
             </div>
             <div className="flex flex-col gap-3">
-              {rightColumnSlots.map((slot) => (
-                <SlotItem
-                  key={`${currentDate}-${selectedProfessionalId}-${slot.id}`}
-                  slot={slot}
+              {rightColumnSlots.map(slot => (
+                <SlotItem 
+                  key={`${currentDate}-${selectedProfessionalId}-${slot.id}`} 
+                  slot={slot} 
                   onSelect={handleSlotClick}
                   onCancel={() => handleDirectCancel(slot)}
                 />
@@ -911,7 +782,7 @@ export default function App() {
                 <List size={18} className="text-corporate-blue" />
                 Lista de Atendimentos - {selectedProfessional.name}
               </h3>
-              <button
+              <button 
                 onClick={() => window.print()}
                 className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-bold text-gray-600 hover:bg-gray-50 transition-colors"
               >
@@ -919,60 +790,46 @@ export default function App() {
               </button>
             </div>
             <div className="divide-y divide-gray-100">
-              {currentSlots.map((slot) => (
-                <div
+              {currentSlots.map(slot => (
+                <div 
                   key={slot.id}
-                  className={`flex items-center p-4 transition-colors ${
-                    slot.type === "booked"
-                      ? "bg-blue-50/30"
-                      : "hover:bg-gray-50"
-                  }`}
+                  className={`flex items-center p-4 transition-colors ${slot.type === 'booked' ? 'bg-blue-50/30' : 'hover:bg-gray-50'}`}
                 >
                   <div className="w-20 font-mono font-bold text-lg text-corporate-blue shrink-0">
                     {slot.time}
                   </div>
                   <div className="flex-1 flex items-center justify-between">
                     <div>
-                      {slot.type === "booked" ? (
+                      {slot.type === 'booked' ? (
                         <div className="flex flex-col">
-                          <span className="font-bold text-gray-900">
-                            {slot.attendeeName}
-                          </span>
-                          <span className="text-xs text-emerald-600 font-medium uppercase tracking-wider">
-                            Confirmado
-                          </span>
+                          <span className="font-bold text-gray-900">{slot.attendeeName}</span>
+                          <span className="text-xs text-emerald-600 font-medium uppercase tracking-wider">Confirmado</span>
                         </div>
-                      ) : slot.type === "break" ? (
-                        <span className="text-amber-500 font-medium italic">
-                          Intervalo
-                        </span>
-                      ) : slot.type === "lunch" ? (
-                        <span className="text-orange-500 font-medium italic">
-                          Almoço
-                        </span>
+                      ) : slot.type === 'break' ? (
+                        <span className="text-amber-500 font-medium italic">Intervalo</span>
+                      ) : slot.type === 'lunch' ? (
+                        <span className="text-orange-500 font-medium italic">Almoço</span>
                       ) : (
                         <span className="text-gray-400 italic">Disponível</span>
                       )}
                     </div>
-
+                    
                     <div className="flex gap-2">
-                      {slot.type === "booked" ? (
-                        <button
+                      {slot.type === 'booked' ? (
+                        <button 
                           onClick={() => handleDirectCancel(slot)}
                           className="p-2 text-gray-400 hover:text-red-500 transition-colors"
                           title="Cancelar Agendamento"
                         >
                           <Trash2 size={18} />
                         </button>
-                      ) : (
-                        slot.type === "available" && (
-                          <button
-                            onClick={() => handleSlotClick(slot)}
-                            className="px-4 py-1.5 bg-corporate-blue text-white text-xs font-bold rounded-lg hover:bg-blue-800 transition-colors"
-                          >
-                            Agendar
-                          </button>
-                        )
+                      ) : (slot.type === 'available') && (
+                        <button 
+                          onClick={() => handleSlotClick(slot)}
+                          className="px-4 py-1.5 bg-corporate-blue text-white text-xs font-bold rounded-lg hover:bg-blue-800 transition-colors"
+                        >
+                          Agendar
+                        </button>
                       )}
                     </div>
                   </div>
@@ -986,14 +843,12 @@ export default function App() {
       <footer className="mt-12 text-center text-gray-400 text-sm pb-8">
         <div className="flex items-center justify-center gap-2 mb-2">
           <Flower2 size={16} className="text-blue-300" />
-          <span className="font-bold tracking-widest uppercase text-[10px]">
-            Benesse Quick Massage
-          </span>
+          <span className="font-bold tracking-widest uppercase text-[10px]">Benesse Quick Massage</span>
         </div>
         <p className="mb-2">© 2026 Sistema de Agendamento Corporativo</p>
-        <a
-          href="https://www.benessegestaoesportiva.com.br"
-          target="_blank"
+        <a 
+          href="https://www.benessegestaoesportiva.com.br" 
+          target="_blank" 
           rel="noopener noreferrer"
           className="text-blue-400 hover:text-blue-600 transition-colors font-medium"
         >
@@ -1002,10 +857,10 @@ export default function App() {
       </footer>
 
       {/* MODALS */}
-      <BookingModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        slot={selectedSlot}
+      <BookingModal 
+        isOpen={isModalOpen} 
+        onClose={() => setIsModalOpen(false)} 
+        slot={selectedSlot} 
         onBook={handleBooking}
       />
 
@@ -1043,12 +898,8 @@ export default function App() {
               <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mb-4">
                 <Settings size={32} className="text-corporate-blue" />
               </div>
-              <h3 className="text-2xl font-black text-corporate-blue tracking-tight">
-                Acesso Restrito
-              </h3>
-              <p className="text-slate-500 text-sm mt-2">
-                Digite a senha de administrador para continuar
-              </p>
+              <h3 className="text-2xl font-black text-corporate-blue tracking-tight">Acesso Restrito</h3>
+              <p className="text-slate-500 text-sm mt-2">Digite a senha de administrador para continuar</p>
             </div>
 
             <form onSubmit={handleLoginSubmit} className="space-y-4">
@@ -1061,31 +912,54 @@ export default function App() {
                   placeholder="Sua senha"
                   className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:border-corporate-blue outline-none transition-all text-center text-lg font-bold tracking-widest"
                 />
-                {loginError && (
-                  <p className="text-red-500 text-xs font-bold mt-2 text-center">
-                    {loginError}
-                  </p>
-                )}
+                {loginError && <p className="text-red-500 text-xs font-bold mt-2 text-center">{loginError}</p>}
               </div>
               <div className="flex gap-3">
-                <button
+                <button 
                   type="button"
                   onClick={() => setIsLoginModalOpen(false)}
                   className="flex-1 px-6 py-4 bg-slate-100 text-slate-600 rounded-2xl font-bold hover:bg-slate-200 transition-all"
                 >
                   Cancelar
                 </button>
-                <button
+                <button 
                   type="submit"
                   className="flex-1 px-6 py-4 bg-corporate-blue text-white rounded-2xl font-bold hover:bg-blue-800 shadow-lg shadow-blue-900/20 transition-all"
                 >
                   Entrar
                 </button>
               </div>
+
+              <div className="relative my-6">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-slate-200"></div>
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-white px-2 text-slate-400 font-bold">Ou use sua conta</span>
+                </div>
+              </div>
+
+              <button 
+                type="button"
+                onClick={handleGoogleLogin}
+                className="w-full px-6 py-4 bg-white border border-slate-200 text-slate-700 rounded-2xl font-bold hover:bg-slate-50 transition-all flex items-center justify-center gap-3 shadow-sm"
+              >
+                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-5 h-5" />
+                Entrar com Google
+              </button>
             </form>
           </div>
         </div>
       )}
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/:companySlug" element={<SchedulingSystem />} />
+      <Route path="/" element={<Navigate to="/empresa-a" replace />} />
+    </Routes>
   );
 }

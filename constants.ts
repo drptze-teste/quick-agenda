@@ -37,3 +37,16 @@ export const generateScheduleFromConfig = (config: SlotConfig, timeList: string[
 };
 
 export const INITIAL_SLOTS = generateScheduleFromConfig(DEFAULT_SLOT_CONFIG, TIME_LIST);
+
+export const DEFAULT_COMPANIES = [
+  { slug: 'empresa-a', name: 'Empresa A' },
+  { slug: 'empresa-b', name: 'Empresa B' },
+  { slug: 'empresa-c', name: 'Empresa C' },
+  { slug: 'empresa-d', name: 'Empresa D' },
+  { slug: 'empresa-e', name: 'Empresa E' },
+  { slug: 'empresa-f', name: 'Empresa F' },
+  { slug: 'empresa-g', name: 'Empresa G' },
+  { slug: 'empresa-h', name: 'Empresa H' },
+  { slug: 'empresa-i', name: 'Empresa I' },
+  { slug: 'empresa-j', name: 'Empresa J' }
+];
