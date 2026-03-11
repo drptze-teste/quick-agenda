@@ -9,9 +9,59 @@ import BookingModal from './components/BookingModal';
 import BenesseLogo from './components/BenesseLogo';
 import StaffModal from './components/StaffModal';
 import { getScheduleSummary } from './services/geminiService';
-import { db, auth } from './lib/firebase';
+import { db, auth, handleFirestoreError, OperationType } from './lib/firebase';
 import { doc, getDoc, setDoc, collection, getDocs, writeBatch, deleteDoc, query, where } from 'firebase/firestore';
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from 'firebase/auth';
+
+// --- ERROR BOUNDARY ---
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean, error: any }> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: any, errorInfo: any) {
+    console.error("ErrorBoundary caught an error", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      let displayMessage = "Ocorreu um erro inesperado.";
+      try {
+        const parsed = JSON.parse(this.state.error.message);
+        if (parsed.error) {
+          displayMessage = `Erro no Banco de Dados: ${parsed.error}`;
+        }
+      } catch (e) {
+        displayMessage = this.state.error.message || displayMessage;
+      }
+
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
+          <div className="bg-white p-8 rounded-[32px] shadow-xl max-w-md w-full text-center border border-red-100">
+            <div className="w-16 h-16 bg-red-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <CloudOff size={32} className="text-red-500" />
+            </div>
+            <h2 className="text-2xl font-black text-slate-800 mb-2">Ops! Algo deu errado</h2>
+            <p className="text-slate-500 mb-6">{displayMessage}</p>
+            <button 
+              onClick={() => window.location.reload()}
+              className="w-full py-4 bg-corporate-blue text-white rounded-2xl font-bold hover:bg-blue-800 transition-all"
+            >
+              Recarregar Página
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 function SchedulingSystem() {
   const { companySlug } = useParams<{ companySlug: string }>();
@@ -47,8 +97,11 @@ function SchedulingSystem() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isNotFound, setIsNotFound] = useState(false);
   const [user, setUser] = useState<any>(null);
+  const [allCompanies, setAllCompanies] = useState<Company[]>([]);
 
   const isInitialLoad = useRef(true);
+
+  const isSuperAdmin = user && (user.email === 'drptze@gmail.com' || user.email?.endsWith('@benesse.com.br'));
 
   // --- AUTH OBSERVER ---
   useEffect(() => {
@@ -60,6 +113,22 @@ function SchedulingSystem() {
     });
     return () => unsubscribe();
   }, []);
+
+  // Fetch all companies for super admin
+  useEffect(() => {
+    if (isSuperAdmin && isStaffModalOpen) {
+      const fetchAllCompanies = async () => {
+        try {
+          const snapshot = await getDocs(collection(db, 'companies'));
+          const companies = snapshot.docs.map(doc => doc.data() as Company);
+          setAllCompanies(companies);
+        } catch (error) {
+          handleFirestoreError(error, OperationType.LIST, 'companies');
+        }
+      };
+      fetchAllCompanies();
+    }
+  }, [isSuperAdmin, isStaffModalOpen]);
 
   // --- PERSISTENCE LOGIC ---
 
@@ -88,7 +157,11 @@ function SchedulingSystem() {
               slotConfig: DEFAULT_SLOT_CONFIG,
               updatedAt: new Date().toISOString()
             };
-            await setDoc(doc(db, 'companies', companySlug), newCompany);
+            try {
+              await setDoc(doc(db, 'companies', companySlug), newCompany);
+            } catch (e) {
+              handleFirestoreError(e, OperationType.CREATE, `companies/${companySlug}`);
+            }
             setCompany(newCompany);
             setSlotConfig(DEFAULT_SLOT_CONFIG);
             setAvailableDates(['2026-01-01']);
@@ -121,7 +194,11 @@ function SchedulingSystem() {
         if (professionalsData.length === 0) {
           // Create a default professional for new companies
           const defaultPro = { ...DEFAULT_PROFESSIONAL, companyId: companySlug };
-          await setDoc(doc(db, 'professionals', defaultPro.id), defaultPro);
+          try {
+            await setDoc(doc(db, 'professionals', defaultPro.id), defaultPro);
+          } catch (e) {
+            handleFirestoreError(e, OperationType.CREATE, `professionals/${defaultPro.id}`);
+          }
           professionalsData = [defaultPro];
         }
         
@@ -140,6 +217,9 @@ function SchedulingSystem() {
         setIsOnline(true);
         
       } catch (error) {
+        if (error instanceof Error && error.message.includes('Firestore')) {
+          throw error; // Let ErrorBoundary handle it
+        }
         console.error('Error loading company data:', error);
         setIsOnline(false);
       } finally {
@@ -205,8 +285,7 @@ function SchedulingSystem() {
         await batch.commit();
         setIsOnline(true);
       } catch (error) {
-        console.error('Firebase save error:', error);
-        setIsOnline(false);
+        handleFirestoreError(error, OperationType.WRITE, 'batch-update');
       } finally {
         setIsSyncing(false);
       }
@@ -307,14 +386,30 @@ function SchedulingSystem() {
   };
 
   const handleGoogleLogin = async () => {
+    setLoginError('');
     try {
       const provider = new GoogleAuthProvider();
+      // Force account selection to help with multiple accounts
+      provider.setCustomParameters({ prompt: 'select_account' });
+      
       await signInWithPopup(auth, provider);
       setIsLoginModalOpen(false);
       setIsStaffModalOpen(true);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Erro no login Google:", error);
-      setLoginError('Falha ao autenticar com Google');
+      
+      let message = 'Falha ao autenticar com Google';
+      if (error.code === 'auth/popup-blocked') {
+        message = 'O navegador bloqueou o popup de login. Por favor, permita popups para este site.';
+      } else if (error.code === 'auth/unauthorized-domain') {
+        message = 'Este domínio não está autorizado no Firebase Console. Adicione os domínios .run.app nas configurações de Autenticação.';
+      } else if (error.code === 'auth/popup-closed-by-user') {
+        message = 'O login foi cancelado.';
+      } else if (error.message) {
+        message = `Erro: ${error.message}`;
+      }
+      
+      setLoginError(message);
     }
   };
 
@@ -322,6 +417,30 @@ function SchedulingSystem() {
     await signOut(auth);
     setIsAdminAuthenticated(false);
     setIsStaffModalOpen(false);
+  };
+
+  const handleAddCompany = async (slug: string, name: string) => {
+    try {
+      const newCompany: Company = {
+        slug,
+        name,
+        adminPassword: 'admin123',
+        availableDates: ['2026-01-01'],
+        timeList: TIME_LIST,
+        slotConfig: DEFAULT_SLOT_CONFIG,
+        updatedAt: new Date().toISOString()
+      };
+      await setDoc(doc(db, 'companies', slug), newCompany);
+      setAllCompanies(prev => [...prev, newCompany]);
+      
+      // Create a default professional for the new company
+      const defaultPro = { ...DEFAULT_PROFESSIONAL, id: `pro-${Date.now()}`, companyId: slug };
+      await setDoc(doc(db, 'professionals', defaultPro.id), defaultPro);
+      
+      alert(`Empresa "${name}" cadastrada com sucesso!`);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, `companies/${slug}`);
+    }
   };
 
   const handleBooking = (name: string) => {
@@ -397,7 +516,7 @@ function SchedulingSystem() {
         console.log(`App: Deleted professional ${id}. No associated schedules found.`);
       }
     } catch (error) {
-      console.error('App: Error removing professional from Firestore:', error);
+      handleFirestoreError(error, OperationType.DELETE, `professionals/${id}`);
     }
   };
 
@@ -538,8 +657,7 @@ function SchedulingSystem() {
       
       alert('Todos os agendamentos desta empresa foram apagados!');
     } catch (error) {
-      console.error('Error clearing schedules:', error);
-      alert('Erro ao apagar agendamentos.');
+      handleFirestoreError(error, OperationType.DELETE, 'schedules-clear');
     } finally {
       setIsSyncing(false);
     }
@@ -577,7 +695,7 @@ function SchedulingSystem() {
         await batch.commit();
       }
     } catch (error) {
-      console.error('App: Error cleaning up schedules for removed date:', error);
+      handleFirestoreError(error, OperationType.DELETE, `schedules-date-${date}`);
     }
   };
 
@@ -635,13 +753,25 @@ function SchedulingSystem() {
             </h1>
           </div>
           
-          <button 
-            onClick={handleAdminClick}
-            className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-full text-slate-600 hover:bg-slate-50 transition-all shadow-sm hover:shadow-md active:scale-95"
-          >
-            <Settings size={18} />
-            <span className="text-sm font-semibold">Configurações</span>
-          </button>
+          <div className="flex items-center gap-3">
+            {isAdminAuthenticated && (
+              <div className="flex items-center gap-2 px-3 py-1 bg-emerald-50 text-emerald-600 rounded-full text-[10px] font-bold border border-emerald-100">
+                <UserCircle size={12} />
+                <span>Admin: {user?.email}</span>
+              </div>
+            )}
+            <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-bold border ${isSyncing ? 'bg-blue-50 text-blue-600 border-blue-100 animate-pulse' : 'bg-slate-50 text-slate-400 border-slate-100'}`}>
+              {isSyncing ? <Cloud size={12} className="animate-bounce" /> : <Cloud size={12} />}
+              <span>{isSyncing ? 'Sincronizando...' : 'Sincronizado'}</span>
+            </div>
+            <button 
+              onClick={handleAdminClick}
+              className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-full text-slate-600 hover:bg-slate-50 transition-all shadow-sm hover:shadow-md active:scale-95"
+            >
+              <Settings size={18} />
+              <span className="text-sm font-semibold">Configurações</span>
+            </button>
+          </div>
         </div>
 
         <div className="w-full bg-white rounded-3xl p-6 shadow-xl shadow-blue-900/5 border border-blue-50/50">
@@ -888,6 +1018,9 @@ function SchedulingSystem() {
         adminPassword={adminPassword}
         onUpdateAdminPassword={setAdminPassword}
         schedules={schedules}
+        allCompanies={allCompanies}
+        onAddCompany={handleAddCompany}
+        isSuperAdmin={!!isSuperAdmin}
       />
 
       {/* LOGIN MODAL */}
@@ -899,7 +1032,25 @@ function SchedulingSystem() {
                 <Settings size={32} className="text-corporate-blue" />
               </div>
               <h3 className="text-2xl font-black text-corporate-blue tracking-tight">Acesso Restrito</h3>
-              <p className="text-slate-500 text-sm mt-2">Digite a senha de administrador para continuar</p>
+              {user ? (
+                <div className="mt-4 p-4 bg-amber-50 rounded-2xl border border-amber-100">
+                  <p className="text-amber-800 text-sm font-medium">
+                    Você está logado como: <br/>
+                    <span className="font-bold">{user.email}</span>
+                  </p>
+                  <p className="text-amber-600 text-[10px] mt-1">
+                    Este e-mail não tem permissão de administrador.
+                  </p>
+                  <button 
+                    onClick={handleLogout}
+                    className="mt-3 text-xs font-bold text-amber-700 underline hover:text-amber-900"
+                  >
+                    Sair e usar outra conta
+                  </button>
+                </div>
+              ) : (
+                <p className="text-slate-500 text-sm mt-2">Digite a senha de administrador para continuar</p>
+              )}
             </div>
 
             <form onSubmit={handleLoginSubmit} className="space-y-4">
@@ -957,9 +1108,11 @@ function SchedulingSystem() {
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/:companySlug" element={<SchedulingSystem />} />
-      <Route path="/" element={<Navigate to="/empresa-a" replace />} />
-    </Routes>
+    <ErrorBoundary>
+      <Routes>
+        <Route path="/:companySlug" element={<SchedulingSystem />} />
+        <Route path="/" element={<Navigate to="/empresa-a" replace />} />
+      </Routes>
+    </ErrorBoundary>
   );
 }
