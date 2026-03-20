@@ -105,10 +105,20 @@ function SchedulingSystem() {
 
   // --- AUTH OBSERVER ---
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
-      if (currentUser && (currentUser.email === 'drptze@gmail.com' || currentUser.email?.endsWith('@benesse.com.br'))) {
-        setIsAdminAuthenticated(true);
+      if (currentUser) {
+        // Check if this user has admin role in Firestore
+        try {
+          const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+          if (userDoc.exists() && userDoc.data().role === 'admin') {
+            setIsAdminAuthenticated(true);
+          } else if (currentUser.email === 'drptze@gmail.com' || currentUser.email?.endsWith('@benesse.com.br')) {
+            setIsAdminAuthenticated(true);
+          }
+        } catch (err) {
+          console.error("Error checking user role:", err);
+        }
       }
     });
     return () => unsubscribe();
@@ -231,11 +241,51 @@ function SchedulingSystem() {
     loadData();
   }, [companySlug]);
 
-  // Save data on change
+  // Save Schedules (Public/Admin)
   useEffect(() => {
     if (isInitialLoad.current || !companySlug) return;
 
-    const saveData = async () => {
+    const saveSchedules = async () => {
+      try {
+        setIsSyncing(true);
+        const batch = writeBatch(db);
+
+        for (const [key, slots] of Object.entries(schedules)) {
+          if (!slots) continue;
+          
+          const scheduleRef = doc(db, 'schedules', key);
+          const cleanSlots = slots.map(slot => {
+            const s = { ...slot };
+            if (s.attendeeName === undefined) delete s.attendeeName;
+            return s;
+          });
+
+          batch.set(scheduleRef, {
+            slots: cleanSlots,
+            companyId: companySlug,
+            updatedAt: new Date().toISOString()
+          }, { merge: true });
+        }
+
+        await batch.commit();
+        setIsOnline(true);
+      } catch (error) {
+        console.error('Error saving schedules:', error);
+        setIsOnline(false);
+      } finally {
+        setIsSyncing(false);
+      }
+    };
+
+    const timeout = setTimeout(saveSchedules, 1500);
+    return () => clearTimeout(timeout);
+  }, [schedules, companySlug]);
+
+  // Save Admin Data (Branding, Professionals, Config)
+  useEffect(() => {
+    if (isInitialLoad.current || !companySlug || !isAdminAuthenticated) return;
+
+    const saveAdminData = async () => {
       try {
         setIsSyncing(true);
         const batch = writeBatch(db);
@@ -264,36 +314,22 @@ function SchedulingSystem() {
           }, { merge: true });
         }
 
-        // 3. Update Schedules
-        for (const [key, slots] of Object.entries(schedules)) {
-          if (!slots) continue;
-          
-          const scheduleRef = doc(db, 'schedules', key);
-          const cleanSlots = slots.map(slot => {
-            const s = { ...slot };
-            if (s.attendeeName === undefined) delete s.attendeeName;
-            return s;
-          });
-
-          batch.set(scheduleRef, {
-            slots: cleanSlots,
-            companyId: companySlug,
-            updatedAt: new Date().toISOString()
-          }, { merge: true });
-        }
-
         await batch.commit();
         setIsOnline(true);
       } catch (error) {
-        handleFirestoreError(error, OperationType.WRITE, 'batch-update');
+        console.error('Error saving admin data:', error);
+        // Don't throw here to avoid crashing the UI, but log it
+        if (error instanceof Error && error.message.includes('permission-denied')) {
+          console.warn('Permission denied: User is not authorized to save admin data in Firestore.');
+        }
       } finally {
         setIsSyncing(false);
       }
     };
 
-    const timeout = setTimeout(saveData, 1500);
+    const timeout = setTimeout(saveAdminData, 2000);
     return () => clearTimeout(timeout);
-  }, [schedules, slotConfig, professionals, availableDates, timeList, logoUrl, clientName, companySlug]);
+  }, [slotConfig, professionals, availableDates, timeList, logoUrl, clientName, adminPassword, companySlug, isAdminAuthenticated]);
 
   if (isNotFound) {
     return (
@@ -372,10 +408,23 @@ function SchedulingSystem() {
     }
   };
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (loginInput === adminPassword) {
       setIsAdminAuthenticated(true);
+      
+      // Persist admin role to Firestore for this user session
+      if (auth.currentUser) {
+        try {
+          await setDoc(doc(db, 'users', auth.currentUser.uid), {
+            role: 'admin',
+            updatedAt: new Date().toISOString()
+          });
+        } catch (err) {
+          console.error("Error persisting admin role:", err);
+        }
+      }
+
       setIsLoginModalOpen(false);
       setIsStaffModalOpen(true);
       setLoginInput('');
