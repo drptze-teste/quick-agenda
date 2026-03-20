@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { Professional, SlotConfig, TimeSlot } from '../types';
 import { TIME_LIST } from '../constants';
-import { X, Plus, Users, Trash2, Clock, Calendar, Settings, BarChart2, Flower2, Upload } from 'lucide-react';
+import { X, Plus, Users, Trash2, Clock, Calendar, Settings, BarChart2, Flower2, Upload, Download, Building2 } from 'lucide-react';
 
 interface StaffModalProps {
   isOpen: boolean;
@@ -124,11 +124,65 @@ const StaffModal: React.FC<StaffModalProps> = ({
   }, 0);
 
   const proStats = professionals.map(pro => {
-    const bookings = Object.entries(schedules)
-      .filter(([key]) => key.includes(`::${pro.id}`))
-      .reduce((acc, [_, slots]) => acc + slots.filter(s => s.type === 'booked').length, 0);
-    return { name: pro.name, bookings };
+    const proSchedules = Object.entries(schedules)
+      .filter(([key]) => key.includes(`::${pro.id}`));
+    
+    const bookings = proSchedules.reduce((acc, [_, slots]) => acc + slots.filter(s => s.type === 'booked').length, 0);
+    const present = proSchedules.reduce((acc, [_, slots]) => acc + slots.filter(s => s.type === 'booked' && s.presence === 'present').length, 0);
+    const absent = proSchedules.reduce((acc, [_, slots]) => acc + slots.filter(s => s.type === 'booked' && s.presence === 'absent').length, 0);
+    const pending = proSchedules.reduce((acc, [_, slots]) => acc + slots.filter(s => s.type === 'booked' && (!s.presence || s.presence === 'pending')).length, 0);
+
+    return { 
+      name: pro.name, 
+      bookings,
+      present,
+      absent,
+      pending,
+      utilization: bookings > 0 ? Math.round((present / bookings) * 100) : 0
+    };
   });
+
+  const handleDownloadReport = () => {
+    const headers = ['Data', 'Profissional', 'Horário', 'Cliente', 'Status', 'Presença'];
+    const rows: string[][] = [];
+
+    Object.entries(schedules).forEach(([key, slots]) => {
+      const [date, proId] = key.split('::');
+      const professional = professionals.find(p => p.id === proId);
+      
+      slots.filter(s => s.type === 'booked').forEach(slot => {
+        rows.push([
+          date,
+          professional?.name || 'N/A',
+          slot.time,
+          slot.attendeeName || '',
+          'Confirmado',
+          slot.presence === 'present' ? 'Presente' : slot.presence === 'absent' ? 'Faltou' : 'Pendente'
+        ]);
+      });
+    });
+
+    // Sort by date and time
+    rows.sort((a, b) => {
+      if (a[0] !== b[0]) return a[0].localeCompare(b[0]);
+      return a[2].localeCompare(b[2]);
+    });
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+    ].join('\n');
+
+    const blob = new Blob(["\ufeff" + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `relatorio_utilizacao_${clientName.replace(/\s+/g, '_').toLowerCase()}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fade-in">
@@ -506,60 +560,113 @@ const StaffModal: React.FC<StaffModalProps> = ({
 
             {/* REPORTS TAB */}
             {activeTab === 'reports' && (
-              <div className="animate-fade-in">
-                <h4 className="text-lg font-black text-corporate-blue mb-6">Resumo de Atendimentos</h4>
-                
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-8">
-                  <div className="bg-blue-50 p-6 rounded-3xl border border-blue-100">
-                    <p className="text-xs font-bold text-blue-500 uppercase tracking-widest mb-1">Total Geral</p>
-                    <h5 className="text-4xl font-black text-corporate-blue">{totalBookings}</h5>
-                    <p className="text-xs text-blue-400 mt-2">Agendamentos realizados</p>
+              <div className="space-y-8 animate-fade-in">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-lg font-black text-corporate-blue">Relatório de Utilização</h4>
+                    <p className="text-xs text-slate-500">Visão geral de agendamentos e presenças</p>
                   </div>
-                  
-                  <div className="flex items-center justify-center">
-                    {confirmClearAll ? (
-                      <div className="flex flex-col items-center gap-2 animate-fade-in bg-red-50 p-4 rounded-2xl border border-red-100">
-                        <p className="text-[10px] font-black text-red-600 uppercase tracking-widest">Apagar TUDO permanentemente?</p>
-                        <div className="flex gap-2">
-                          <button 
-                            onClick={() => {
-                              onClearSchedules();
-                              setConfirmClearAll(false);
-                            }}
-                            className="px-4 py-2 bg-red-600 text-white rounded-xl text-[10px] font-bold hover:bg-red-700 transition-all"
-                          >
-                            SIM, APAGAR TUDO
-                          </button>
-                          <button 
-                            onClick={() => setConfirmClearAll(false)}
-                            className="px-4 py-2 bg-slate-400 text-white rounded-xl text-[10px] font-bold hover:bg-slate-500 transition-all"
-                          >
-                            CANCELAR
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <button 
-                        onClick={() => setConfirmClearAll(true)}
-                        className="px-6 py-3 bg-red-50 text-red-600 rounded-2xl text-xs font-bold hover:bg-red-100 transition-all border border-red-100 flex items-center gap-2"
-                      >
-                        <Trash2 size={14} /> Limpar Todos os Agendamentos
-                      </button>
-                    )}
+                  <button
+                    onClick={handleDownloadReport}
+                    className="flex items-center gap-2 px-6 py-3 bg-corporate-blue text-white rounded-2xl hover:bg-blue-800 transition-all shadow-lg shadow-blue-900/20 active:scale-95"
+                  >
+                    <Download size={18} />
+                    <span className="text-sm font-bold">Baixar CSV</span>
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Geral</p>
+                    <p className="text-4xl font-black text-corporate-blue">{totalBookings}</p>
+                  </div>
+                  <div className="p-6 bg-emerald-50 rounded-3xl border border-emerald-100">
+                    <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1">Presentes</p>
+                    <p className="text-4xl font-black text-emerald-700">
+                      {proStats.reduce((acc, p) => acc + p.present, 0)}
+                    </p>
+                  </div>
+                  <div className="p-6 bg-rose-50 rounded-3xl border border-rose-100">
+                    <p className="text-[10px] font-black text-rose-600 uppercase tracking-widest mb-1">Faltas</p>
+                    <p className="text-4xl font-black text-rose-700">
+                      {proStats.reduce((acc, p) => acc + p.absent, 0)}
+                    </p>
+                  </div>
+                  <div className="p-6 bg-amber-50 rounded-3xl border border-amber-100">
+                    <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest mb-1">Pendentes</p>
+                    <p className="text-4xl font-black text-amber-700">
+                      {proStats.reduce((acc, p) => acc + p.pending, 0)}
+                    </p>
                   </div>
                 </div>
 
-                <div className="space-y-4">
-                  <h6 className="text-xs font-black text-slate-400 uppercase tracking-widest">Por Profissional</h6>
-                  {proStats.map((stat, idx) => (
-                    <div key={idx} className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100">
-                      <span className="font-bold text-slate-700">{stat.name}</span>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xl font-black text-corporate-blue">{stat.bookings}</span>
-                        <span className="text-[10px] font-bold text-slate-400 uppercase">Sessões</span>
+                <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse min-w-[600px]">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-200">
+                          <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Profissional</th>
+                          <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Agendamentos</th>
+                          <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Presenças</th>
+                          <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Faltas</th>
+                          <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Utilização</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {proStats.map((pro) => (
+                          <tr key={pro.name} className="hover:bg-slate-50/50 transition-colors">
+                            <td className="px-6 py-4 font-bold text-slate-700">{pro.name}</td>
+                            <td className="px-6 py-4 text-center text-slate-600 font-medium">{pro.bookings}</td>
+                            <td className="px-6 py-4 text-center text-emerald-600 font-bold">{pro.present}</td>
+                            <td className="px-6 py-4 text-center text-rose-600 font-bold">{pro.absent}</td>
+                            <td className="px-6 py-4">
+                              <div className="flex items-center justify-center gap-3">
+                                <div className="w-24 h-2 bg-slate-100 rounded-full overflow-hidden">
+                                  <div 
+                                    className="h-full bg-corporate-blue" 
+                                    style={{ width: `${pro.utilization}%` }}
+                                  />
+                                </div>
+                                <span className="text-xs font-black text-slate-700">{pro.utilization}%</span>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="flex justify-center pt-4">
+                  {confirmClearAll ? (
+                    <div className="flex flex-col items-center gap-2 animate-fade-in bg-red-50 p-4 rounded-2xl border border-red-100">
+                      <p className="text-[10px] font-black text-red-600 uppercase tracking-widest">Apagar TUDO permanentemente?</p>
+                      <div className="flex gap-2">
+                        <button 
+                          onClick={() => {
+                            onClearSchedules();
+                            setConfirmClearAll(false);
+                          }}
+                          className="px-4 py-2 bg-red-600 text-white rounded-xl text-[10px] font-bold hover:bg-red-700 transition-all"
+                        >
+                          SIM, APAGAR TUDO
+                        </button>
+                        <button 
+                          onClick={() => setConfirmClearAll(false)}
+                          className="px-4 py-2 bg-slate-400 text-white rounded-xl text-[10px] font-bold hover:bg-slate-500 transition-all"
+                        >
+                          CANCELAR
+                        </button>
                       </div>
                     </div>
-                  ))}
+                  ) : (
+                    <button 
+                      onClick={() => setConfirmClearAll(true)}
+                      className="px-6 py-3 bg-red-50 text-red-600 rounded-2xl text-[10px] font-bold hover:bg-red-100 transition-all border border-red-100 flex items-center gap-2"
+                    >
+                      <Trash2 size={14} /> Limpar Todos os Agendamentos
+                    </button>
+                  )}
                 </div>
               </div>
             )}

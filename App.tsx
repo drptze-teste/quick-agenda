@@ -2,16 +2,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Routes, Route, useParams, useNavigate, Navigate } from 'react-router-dom';
 import { INITIAL_SLOTS, generateScheduleFromConfig, DEFAULT_SLOT_CONFIG, DEFAULT_PROFESSIONAL, TIME_LIST, DEFAULT_COMPANIES } from './constants';
-import { TimeSlot, Professional, SlotConfig, Company } from './types';
+import { TimeSlot, Professional, SlotConfig, Company, PresenceType } from './types';
 import SlotItem from './components/SlotItem';
-import { LayoutGrid, List, Sparkles, Flower2, CalendarDays, Users, UserCircle, ChevronDown, Settings, CloudOff, Cloud, Printer, Trash2, Building2 } from 'lucide-react';
+import { LayoutGrid, List, Sparkles, Flower2, CalendarDays, Users, UserCircle, ChevronDown, Settings, CloudOff, Cloud, Printer, Trash2, Building2, CheckCircle2, XCircle } from 'lucide-react';
 import BookingModal from './components/BookingModal';
 import BenesseLogo from './components/BenesseLogo';
 import StaffModal from './components/StaffModal';
 import { getScheduleSummary } from './services/geminiService';
 import { db, auth, handleFirestoreError, OperationType } from './lib/firebase';
 import { doc, getDoc, setDoc, collection, getDocs, writeBatch, deleteDoc, query, where } from 'firebase/firestore';
-import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from 'firebase/auth';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
 
 // --- ERROR BOUNDARY ---
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean, error: any }> {
@@ -385,34 +385,6 @@ function SchedulingSystem() {
     }
   };
 
-  const handleGoogleLogin = async () => {
-    setLoginError('');
-    try {
-      const provider = new GoogleAuthProvider();
-      // Force account selection to help with multiple accounts
-      provider.setCustomParameters({ prompt: 'select_account' });
-      
-      await signInWithPopup(auth, provider);
-      setIsLoginModalOpen(false);
-      setIsStaffModalOpen(true);
-    } catch (error: any) {
-      console.error("Erro no login Google:", error);
-      
-      let message = 'Falha ao autenticar com Google';
-      if (error.code === 'auth/popup-blocked') {
-        message = 'O navegador bloqueou o popup de login. Por favor, permita popups para este site.';
-      } else if (error.code === 'auth/unauthorized-domain') {
-        message = 'Este domínio não está autorizado no Firebase Console. Adicione os domínios .run.app nas configurações de Autenticação.';
-      } else if (error.code === 'auth/popup-closed-by-user') {
-        message = 'O login foi cancelado.';
-      } else if (error.message) {
-        message = `Erro: ${error.message}`;
-      }
-      
-      setLoginError(message);
-    }
-  };
-
   const handleLogout = async () => {
     await signOut(auth);
     setIsAdminAuthenticated(false);
@@ -457,6 +429,17 @@ function SchedulingSystem() {
     
     setIsModalOpen(false);
     setSelectedSlot(null);
+  };
+
+  const handlePresenceToggle = (slot: TimeSlot, presence: PresenceType) => {
+    const newSlots = currentSlots.map(s => 
+      s.id === slot.id ? { ...s, presence } : s
+    );
+
+    setSchedules(prev => ({
+      ...prev,
+      [currentScheduleKey]: newSlots
+    }));
   };
 
   const handleDirectCancel = (slot: TimeSlot) => {
@@ -891,6 +874,7 @@ function SchedulingSystem() {
                   slot={slot} 
                   onSelect={handleSlotClick}
                   onCancel={() => handleDirectCancel(slot)}
+                  onPresenceToggle={handlePresenceToggle}
                 />
               ))}
             </div>
@@ -901,6 +885,7 @@ function SchedulingSystem() {
                   slot={slot} 
                   onSelect={handleSlotClick}
                   onCancel={() => handleDirectCancel(slot)}
+                  onPresenceToggle={handlePresenceToggle}
                 />
               ))}
             </div>
@@ -933,7 +918,15 @@ function SchedulingSystem() {
                       {slot.type === 'booked' ? (
                         <div className="flex flex-col">
                           <span className="font-bold text-gray-900">{slot.attendeeName}</span>
-                          <span className="text-xs text-emerald-600 font-medium uppercase tracking-wider">Confirmado</span>
+                          <span className={`text-xs font-medium uppercase tracking-wider ${
+                            slot.presence === 'present' ? 'text-emerald-600' : 
+                            slot.presence === 'absent' ? 'text-rose-600' : 
+                            'text-blue-600'
+                          }`}>
+                            {slot.presence === 'present' ? 'Presente' : 
+                             slot.presence === 'absent' ? 'Faltou' : 
+                             'Confirmado'}
+                          </span>
                         </div>
                       ) : slot.type === 'break' ? (
                         <span className="text-amber-500 font-medium italic">Intervalo</span>
@@ -944,7 +937,26 @@ function SchedulingSystem() {
                       )}
                     </div>
                     
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 items-center">
+                      {slot.type === 'booked' && (
+                        <div className="flex bg-gray-100 p-1 rounded-lg gap-1 mr-2">
+                          <button
+                            onClick={() => handlePresenceToggle(slot, slot.presence === 'present' ? 'pending' : 'present')}
+                            className={`p-1 rounded transition-all ${slot.presence === 'present' ? 'bg-emerald-500 text-white' : 'text-gray-400 hover:text-emerald-600'}`}
+                            title="Marcar Presença"
+                          >
+                            <CheckCircle2 size={14} />
+                          </button>
+                          <button
+                            onClick={() => handlePresenceToggle(slot, slot.presence === 'absent' ? 'pending' : 'absent')}
+                            className={`p-1 rounded transition-all ${slot.presence === 'absent' ? 'bg-rose-500 text-white' : 'text-gray-400 hover:text-rose-600'}`}
+                            title="Marcar Falta"
+                          >
+                            <XCircle size={14} />
+                          </button>
+                        </div>
+                      )}
+                      
                       {slot.type === 'booked' ? (
                         <button 
                           onClick={() => handleDirectCancel(slot)}
@@ -1032,25 +1044,7 @@ function SchedulingSystem() {
                 <Settings size={32} className="text-corporate-blue" />
               </div>
               <h3 className="text-2xl font-black text-corporate-blue tracking-tight">Acesso Restrito</h3>
-              {user ? (
-                <div className="mt-4 p-4 bg-amber-50 rounded-2xl border border-amber-100">
-                  <p className="text-amber-800 text-sm font-medium">
-                    Você está logado como: <br/>
-                    <span className="font-bold">{user.email}</span>
-                  </p>
-                  <p className="text-amber-600 text-[10px] mt-1">
-                    Este e-mail não tem permissão de administrador.
-                  </p>
-                  <button 
-                    onClick={handleLogout}
-                    className="mt-3 text-xs font-bold text-amber-700 underline hover:text-amber-900"
-                  >
-                    Sair e usar outra conta
-                  </button>
-                </div>
-              ) : (
-                <p className="text-slate-500 text-sm mt-2">Digite a senha de administrador para continuar</p>
-              )}
+              <p className="text-slate-500 text-sm mt-2">Digite a senha de administrador para continuar</p>
             </div>
 
             <form onSubmit={handleLoginSubmit} className="space-y-4">
@@ -1080,24 +1074,6 @@ function SchedulingSystem() {
                   Entrar
                 </button>
               </div>
-
-              <div className="relative my-6">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-slate-200"></div>
-                </div>
-                <div className="relative flex justify-center text-xs uppercase">
-                  <span className="bg-white px-2 text-slate-400 font-bold">Ou use sua conta</span>
-                </div>
-              </div>
-
-              <button 
-                type="button"
-                onClick={handleGoogleLogin}
-                className="w-full px-6 py-4 bg-white border border-slate-200 text-slate-700 rounded-2xl font-bold hover:bg-slate-50 transition-all flex items-center justify-center gap-3 shadow-sm"
-              >
-                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-5 h-5" />
-                Entrar com Google
-              </button>
             </form>
           </div>
         </div>

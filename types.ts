@@ -1,11 +1,13 @@
 
 export type SlotType = 'available' | 'booked' | 'break' | 'lunch';
+export type PresenceType = 'pending' | 'present' | 'absent';
 
 export interface TimeSlot {
   id: string;
   time: string;
   type: SlotType;
   attendeeName?: string;
+  presence?: PresenceType;
 }
 
 export interface BookingResponse {
