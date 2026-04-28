@@ -95,11 +95,13 @@ function SchedulingSystem() {
   const [isLoadingSummary, setIsLoadingSummary] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' | 'info' } | null>(null);
   const [isNotFound, setIsNotFound] = useState(false);
   const [user, setUser] = useState<any>(null);
   const [allCompanies, setAllCompanies] = useState<Company[]>([]);
 
   const isInitialLoad = useRef(true);
+  const lastSavedSchedules = useRef<string>("");
 
   const isSuperAdmin = user && (user.email === 'drptze@gmail.com' || user.email?.endsWith('@benesse.com.br'));
 
@@ -152,11 +154,17 @@ function SchedulingSystem() {
         setIsNotFound(false);
 
         // 1. Fetch Company Settings
-        const companyDoc = await getDoc(doc(db, 'companies', companySlug));
+        let companyDoc;
+        try {
+          companyDoc = await getDoc(doc(db, 'companies', companySlug || 'empresa-a'));
+        } catch (e) {
+          handleFirestoreError(e, OperationType.GET, `companies/${companySlug}`);
+          return;
+        }
         
         if (!companyDoc.exists()) {
           // Check if it's one of the default companies
-          const defaultInfo = DEFAULT_COMPANIES.find(c => c.slug === companySlug);
+          const defaultInfo = DEFAULT_COMPANIES.find(c => c.slug === (companySlug || 'empresa-a'));
           if (defaultInfo) {
             // Initialize default company
             const newCompany: Company = {
@@ -168,7 +176,7 @@ function SchedulingSystem() {
               updatedAt: new Date().toISOString()
             };
             try {
-              await setDoc(doc(db, 'companies', companySlug), newCompany);
+              await setDoc(doc(db, 'companies', companySlug || 'empresa-a'), newCompany);
             } catch (e) {
               handleFirestoreError(e, OperationType.CREATE, `companies/${companySlug}`);
             }
@@ -194,8 +202,15 @@ function SchedulingSystem() {
         }
 
         // 2. Fetch professionals for this company
-        const qPros = query(collection(db, 'professionals'), where('companyId', '==', companySlug));
-        const professionalsSnapshot = await getDocs(qPros);
+        let professionalsSnapshot;
+        try {
+          const qPros = query(collection(db, 'professionals'), where('companyId', '==', companySlug || 'empresa-a'));
+          professionalsSnapshot = await getDocs(qPros);
+        } catch (e) {
+          handleFirestoreError(e, OperationType.LIST, 'professionals');
+          return;
+        }
+
         let professionalsData = professionalsSnapshot.docs.map(doc => ({
           id: doc.id,
           ...doc.data()
@@ -203,7 +218,7 @@ function SchedulingSystem() {
 
         if (professionalsData.length === 0) {
           // Create a default professional for new companies
-          const defaultPro = { ...DEFAULT_PROFESSIONAL, companyId: companySlug };
+          const defaultPro = { ...DEFAULT_PROFESSIONAL, companyId: companySlug || 'empresa-a' };
           try {
             await setDoc(doc(db, 'professionals', defaultPro.id), defaultPro);
           } catch (e) {
@@ -216,8 +231,15 @@ function SchedulingSystem() {
         setSelectedProfessionalId(professionalsData[0].id);
 
         // 3. Fetch schedules for this company
-        const qSchedules = query(collection(db, 'schedules'), where('companyId', '==', companySlug));
-        const schedulesSnapshot = await getDocs(qSchedules);
+        let schedulesSnapshot;
+        try {
+          const qSchedules = query(collection(db, 'schedules'), where('companyId', '==', companySlug || 'empresa-a'));
+          schedulesSnapshot = await getDocs(qSchedules);
+        } catch (e) {
+          handleFirestoreError(e, OperationType.LIST, 'schedules');
+          return;
+        }
+
         const schedulesMap: Record<string, TimeSlot[]> = {};
         schedulesSnapshot.docs.forEach(doc => {
           schedulesMap[doc.id] = doc.data()?.slots;
@@ -227,10 +249,11 @@ function SchedulingSystem() {
         setIsOnline(true);
         
       } catch (error) {
-        if (error instanceof Error && error.message.includes('Firestore')) {
-          throw error; // Let ErrorBoundary handle it
-        }
         console.error('Error loading company data:', error);
+        if (error instanceof Error) {
+          // If it was already handled by handleFirestoreError, it will contain specialized info
+          throw error; 
+        }
         setIsOnline(false);
       } finally {
         isInitialLoad.current = false;
@@ -241,14 +264,23 @@ function SchedulingSystem() {
     loadData();
   }, [companySlug]);
 
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  };
+
   // Save Schedules (Public/Admin)
   useEffect(() => {
     if (isInitialLoad.current || !companySlug) return;
+
+    const currentSchedulesStr = JSON.stringify(schedules);
+    if (currentSchedulesStr === lastSavedSchedules.current) return;
 
     const saveSchedules = async () => {
       try {
         setIsSyncing(true);
         const batch = writeBatch(db);
+        let count = 0;
 
         for (const [key, slots] of Object.entries(schedules)) {
           if (!slots) continue;
@@ -265,19 +297,26 @@ function SchedulingSystem() {
             companyId: companySlug,
             updatedAt: new Date().toISOString()
           }, { merge: true });
+          count++;
         }
 
-        await batch.commit();
+        if (count > 0) {
+          await batch.commit();
+          lastSavedSchedules.current = currentSchedulesStr;
+          console.log(`App: Saved ${count} schedules to Firebase.`);
+          showToast('Alterações salvas com sucesso!', 'success');
+        }
         setIsOnline(true);
       } catch (error) {
-        console.error('Error saving schedules:', error);
+        console.error('App: Error saving schedules:', error);
         setIsOnline(false);
+        showToast('Erro ao salvar alterações.', 'error');
       } finally {
         setIsSyncing(false);
       }
     };
 
-    const timeout = setTimeout(saveSchedules, 1500);
+    const timeout = setTimeout(saveSchedules, 1000);
     return () => clearTimeout(timeout);
   }, [schedules, companySlug]);
 
@@ -315,13 +354,13 @@ function SchedulingSystem() {
         }
 
         await batch.commit();
+        console.log('App: Admin data saved to Firebase.');
+        showToast('Configurações administrativas salvas!', 'success');
         setIsOnline(true);
       } catch (error) {
-        console.error('Error saving admin data:', error);
-        // Don't throw here to avoid crashing the UI, but log it
-        if (error instanceof Error && error.message.includes('permission-denied')) {
-          console.warn('Permission denied: User is not authorized to save admin data in Firestore.');
-        }
+        console.error('App: Error saving admin data:', error);
+        setIsOnline(false);
+        showToast('Erro ao salvar configurações administrativas.', 'error');
       } finally {
         setIsSyncing(false);
       }
@@ -481,6 +520,7 @@ function SchedulingSystem() {
   };
 
   const handlePresenceToggle = (slot: TimeSlot, presence: PresenceType) => {
+    console.log(`Toggling presence for slot ${slot.time} to ${presence}`);
     const newSlots = currentSlots.map(s => 
       s.id === slot.id ? { ...s, presence } : s
     );
@@ -754,6 +794,30 @@ function SchedulingSystem() {
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col items-center p-4 sm:p-8 font-sans">
       
+      {/* Toast Notification */}
+      {toast && (
+        <div className={`fixed bottom-8 right-8 z-[100] flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl border animate-slide-up ${
+          toast.type === 'success' ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 
+          toast.type === 'error' ? 'bg-rose-50 border-rose-100 text-rose-800' : 
+          'bg-blue-50 border-blue-100 text-blue-800'
+        }`}>
+          {toast.type === 'success' ? <CheckCircle2 size={20} /> : toast.type === 'error' ? <XCircle size={20} /> : <Info size={20} />}
+          <span className="font-bold text-sm tracking-tight">{toast.message}</span>
+        </div>
+      )}
+
+      {/* Toast Notification */}
+      {toast && (
+        <div className={`fixed bottom-8 right-8 z-[100] flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl border animate-slide-up ${
+          toast.type === 'success' ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 
+          toast.type === 'error' ? 'bg-rose-50 border-rose-100 text-rose-800' : 
+          'bg-blue-50 border-blue-100 text-blue-800'
+        }`}>
+          {toast.type === 'success' ? <CheckCircle2 size={20} /> : toast.type === 'error' ? <XCircle size={20} /> : <Info size={20} />}
+          <span className="font-bold text-sm tracking-tight">{toast.message}</span>
+        </div>
+      )}
+
       {/* Sync Status Indicator */}
       <div className="fixed top-4 right-4 z-50 flex items-center gap-2">
         {isSyncing && (
@@ -834,41 +898,57 @@ function SchedulingSystem() {
 
         {/* Professional Selection Tabs */}
         <div className="mt-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div className="flex overflow-x-auto pb-2 gap-2 scrollbar-hide flex-1">
-            {professionals.map(pro => (
-              <button
-                key={pro.id}
-                onClick={() => setSelectedProfessionalId(pro.id)}
-                className={`
-                  flex items-center gap-2 px-4 py-2 rounded-full whitespace-nowrap transition-all font-medium text-sm border
-                  ${selectedProfessionalId === pro.id 
-                    ? 'bg-corporate-blue text-white border-corporate-blue shadow-md' 
-                    : 'bg-white text-gray-600 border-gray-200 hover:border-corporate-blue hover:text-corporate-blue'}
-                `}
-              >
-                <UserCircle size={16} className={selectedProfessionalId === pro.id ? 'text-blue-200' : 'text-gray-400'} />
-                {pro.name}
-              </button>
-            ))}
+          <div className="flex items-center gap-2 flex-1 overflow-hidden">
+            <div className="flex overflow-x-auto pb-2 gap-2 scrollbar-hide">
+              {professionals.map(pro => (
+                <button
+                  key={pro.id}
+                  onClick={() => setSelectedProfessionalId(pro.id)}
+                  className={`
+                    flex items-center gap-2 px-4 py-2 rounded-full whitespace-nowrap transition-all font-medium text-sm border
+                    ${selectedProfessionalId === pro.id 
+                      ? 'bg-corporate-blue text-white border-corporate-blue shadow-md' 
+                      : 'bg-white text-gray-600 border-gray-200 hover:border-corporate-blue hover:text-corporate-blue'}
+                  `}
+                >
+                  <UserCircle size={16} className={selectedProfessionalId === pro.id ? 'text-blue-200' : 'text-gray-400'} />
+                  {pro.name}
+                </button>
+              ))}
+            </div>
+            <div className="group relative shrink-0">
+              <Info size={16} className="text-slate-300 cursor-help" />
+              <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none">
+                Selecione o profissional para visualizar sua agenda individual.
+              </div>
+            </div>
           </div>
 
-          <div className="flex bg-gray-100 p-1 rounded-xl border border-gray-200 shrink-0">
-            <button 
-              onClick={() => setViewMode('dashboard')}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${viewMode === 'dashboard' ? 'bg-white text-corporate-blue shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-              title="Visão Geral"
-            >
-              <LayoutGrid size={14} />
-              <span className="hidden lg:inline">Dashboard</span>
-            </button>
-            <button 
-              onClick={() => setViewMode('list')}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${viewMode === 'list' ? 'bg-white text-corporate-blue shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-              title="Lista Individual"
-            >
-              <List size={14} />
-              <span className="hidden lg:inline">Lista</span>
-            </button>
+          <div className="flex items-center gap-2">
+            <div className="flex bg-gray-100 p-1 rounded-xl border border-gray-200 shrink-0">
+              <button 
+                onClick={() => setViewMode('dashboard')}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${viewMode === 'dashboard' ? 'bg-white text-corporate-blue shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                title="Visão Geral"
+              >
+                <LayoutGrid size={14} />
+                <span className="hidden lg:inline">Dashboard</span>
+              </button>
+              <button 
+                onClick={() => setViewMode('list')}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${viewMode === 'list' ? 'bg-white text-corporate-blue shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                title="Lista Individual"
+              >
+                <List size={14} />
+                <span className="hidden lg:inline">Lista</span>
+              </button>
+            </div>
+            <div className="group relative">
+              <HelpCircle size={16} className="text-slate-300 cursor-help" />
+              <div className="absolute right-0 bottom-full mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none">
+                Alterne entre a visão de cards (Dashboard) ou lista detalhada para impressão.
+              </div>
+            </div>
           </div>
         </div>
 
@@ -884,14 +964,22 @@ function SchedulingSystem() {
             </div>
           </div>
 
-          <button 
-            onClick={handleGetSummary}
-            disabled={isLoadingSummary}
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-700 rounded-xl text-xs font-bold hover:bg-emerald-100 transition-all border border-emerald-100 disabled:opacity-50"
-          >
-            <Sparkles size={14} className={isLoadingSummary ? 'animate-spin' : ''} />
-            {isLoadingSummary ? 'Analisando...' : 'Resumo da Agenda (IA)'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={handleGetSummary}
+              disabled={isLoadingSummary}
+              className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-700 rounded-xl text-xs font-bold hover:bg-emerald-100 transition-all border border-emerald-100 disabled:opacity-50"
+            >
+              <Sparkles size={14} className={isLoadingSummary ? 'animate-spin' : ''} />
+              {isLoadingSummary ? 'Analisando...' : 'Resumo da Agenda (IA)'}
+            </button>
+            <div className="group relative">
+              <Info size={16} className="text-emerald-300 cursor-help" />
+              <div className="absolute right-0 bottom-full mb-2 w-64 p-3 bg-slate-800 text-white text-[10px] rounded-xl shadow-2xl opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none">
+                A Inteligência Artificial analisa os agendamentos do dia e fornece um resumo rápido sobre a ocupação e horários críticos.
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* AI Summary Box */}

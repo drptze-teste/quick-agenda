@@ -169,9 +169,10 @@ const StaffModal: React.FC<StaffModalProps> = ({
     });
 
     const csvContent = [
-      headers.join(','),
-      ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
-    ].join('\n');
+      'sep=;',
+      headers.join(';'),
+      ...rows.map(row => row.map(cell => `"${cell.replace(/"/g, '""')}"`).join(';'))
+    ].join('\r\n');
 
     const blob = new Blob(["\ufeff" + csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -256,7 +257,15 @@ const StaffModal: React.FC<StaffModalProps> = ({
             {/* STAFF TAB */}
             {activeTab === 'staff' && (
               <div className="animate-fade-in">
-                <h4 className="text-lg font-black text-corporate-blue mb-6">Gerenciar Equipe</h4>
+            <div className="flex items-center gap-2 mb-6">
+                  <h4 className="text-lg font-black text-corporate-blue">Gerenciar Equipe</h4>
+                  <div className="group relative">
+                    <Info size={16} className="text-slate-300 cursor-help" />
+                    <div className="absolute left-full ml-2 top-0 w-64 p-3 bg-slate-800 text-white text-[10px] rounded-xl shadow-2xl opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none">
+                      Adicione ou remova os profissionais que realizam os atendimentos. Cada profissional pode ter sua própria configuração de horários.
+                    </div>
+                  </div>
+                </div>
                 
                 <form onSubmit={handleAddPro} className="mb-8 flex gap-2">
                   <input
@@ -315,6 +324,12 @@ const StaffModal: React.FC<StaffModalProps> = ({
                         <option key={pro.id} value={pro.id}>{pro.name}</option>
                       ))}
                     </select>
+                    <div className="group relative">
+                      <HelpCircle size={18} className="text-blue-400 cursor-help" />
+                      <div className="absolute right-0 top-full mt-2 w-64 p-3 bg-slate-800 text-white text-[10px] rounded-xl shadow-2xl opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none">
+                        O "Modelo Global" define os horários para todos. Se um profissional precisar de horários diferentes, selecione o nome dele e altere individualmente.
+                      </div>
+                    </div>
                   </div>
 
                   {selectedProForConfig !== 'global' && (
@@ -436,7 +451,15 @@ const StaffModal: React.FC<StaffModalProps> = ({
             {/* DATES TAB */}
             {activeTab === 'dates' && (
               <div className="animate-fade-in">
-                <h4 className="text-lg font-black text-corporate-blue mb-6">Datas de Atendimento</h4>
+                <div className="flex items-center gap-2 mb-6">
+                  <h4 className="text-lg font-black text-corporate-blue">Datas de Atendimento</h4>
+                  <div className="group relative">
+                    <Info size={16} className="text-slate-300 cursor-help" />
+                    <div className="absolute left-full ml-2 top-0 w-64 p-3 bg-slate-800 text-white text-[10px] rounded-xl shadow-2xl opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none">
+                      Selecione os dias em que haverá atendimento. A agenda só ficará disponível para os clientes nestas datas específicas.
+                    </div>
+                  </div>
+                </div>
                 
                 <form onSubmit={handleAddDate} className="mb-8 flex gap-2">
                   <input
@@ -475,7 +498,15 @@ const StaffModal: React.FC<StaffModalProps> = ({
             {activeTab === 'branding' && (
               <div className="animate-fade-in space-y-8">
                 <div>
-                  <h4 className="text-lg font-black text-corporate-blue mb-4">Identidade Visual</h4>
+                  <div className="flex items-center gap-2 mb-4">
+                    <h4 className="text-lg font-black text-corporate-blue">Identidade Visual</h4>
+                    <div className="group relative">
+                      <Info size={16} className="text-slate-300 cursor-help" />
+                      <div className="absolute left-full ml-2 top-0 w-64 p-3 bg-slate-800 text-white text-[10px] rounded-xl shadow-2xl opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none">
+                        Personalize o nome e o logotipo que aparecem no topo da página de agendamento para seus clientes.
+                      </div>
+                    </div>
+                  </div>
                   <div className="space-y-6">
                     <div>
                       <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Nome do Cliente</label>
@@ -562,9 +593,17 @@ const StaffModal: React.FC<StaffModalProps> = ({
             {activeTab === 'reports' && (
               <div className="space-y-8 animate-fade-in">
                 <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="text-lg font-black text-corporate-blue">Relatório de Utilização</h4>
-                    <p className="text-xs text-slate-500">Visão geral de agendamentos e presenças</p>
+                  <div className="flex items-center gap-3">
+                    <div>
+                      <h4 className="text-lg font-black text-corporate-blue">Relatório de Utilização</h4>
+                      <p className="text-xs text-slate-500">Visão geral de agendamentos e presenças</p>
+                    </div>
+                    <div className="group relative">
+                      <HelpCircle size={20} className="text-blue-400 cursor-help" />
+                      <div className="absolute left-full ml-2 top-0 w-64 p-3 bg-slate-800 text-white text-[10px] rounded-xl shadow-2xl opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none">
+                        Acompanhe o desempenho de cada profissional. Os dados de "Utilização" são baseados nas presenças confirmadas vs total de agendamentos.
+                      </div>
+                    </div>
                   </div>
                   <button
                     onClick={handleDownloadReport}
