@@ -328,7 +328,8 @@ function SchedulingSystem() {
             name: pro.name,
             companyId: companySlug,
             slotConfig: pro.slotConfig || {},
-            timeList: pro.timeList || null
+            timeList: pro.timeList || null,
+            dailyConfigs: pro.dailyConfigs || null
           }, { merge: true });
         }
 
@@ -371,12 +372,17 @@ function SchedulingSystem() {
   const getScheduleKey = (date: string, proId: string) => `${date}::${proId}`;
 
   const selectedProfessional = professionals.find(p => p.id === selectedProfessionalId) || professionals[0];
-  const activeTimeList = selectedProfessional?.timeList || timeList;
   
-  // Merge global config with professional config for the current view
+  // Check for day-specific config
+  const dayConfig = selectedProfessional?.dailyConfigs?.[currentDate];
+  
+  const activeTimeList = dayConfig?.timeList || selectedProfessional?.timeList || timeList;
+  
+  // Merge global config with professional config and potentially day-specific overrides
   const proSlotConfig = {
     ...slotConfig,
-    ...(selectedProfessional?.slotConfig || {})
+    ...(selectedProfessional?.slotConfig || {}),
+    ...(dayConfig?.slotConfig || {})
   };
 
   // Get current slots. If not found in state, we'll build it from config
@@ -578,9 +584,19 @@ function SchedulingSystem() {
     }));
   };
 
-  const handleUpdateProfessionalSlotConfig = (proId: string, time: string, type: 'available' | 'break' | 'lunch') => {
+  const handleUpdateProfessionalSlotConfig = (proId: string, time: string, type: 'available' | 'break' | 'lunch', date?: string) => {
     setProfessionals(prev => prev.map(p => {
       if (p.id === proId) {
+        if (date) {
+          const dailyConfigs = { ...(p.dailyConfigs || {}) };
+          const dayConfig = { ...(dailyConfigs[date] || {}) };
+          dayConfig.slotConfig = {
+            ...(dayConfig.slotConfig || p.slotConfig || slotConfig || {}),
+            [time]: type
+          };
+          dailyConfigs[date] = dayConfig;
+          return { ...p, dailyConfigs };
+        }
         return {
           ...p,
           slotConfig: {
@@ -593,13 +609,24 @@ function SchedulingSystem() {
     }));
   };
 
-  const handleAddTime = (time: string, proId?: string) => {
+  const handleAddTime = (time: string, proId?: string, date?: string) => {
     if (proId && proId !== 'global') {
       setProfessionals(prev => prev.map(p => {
         if (p.id === proId) {
-          const currentList = p.timeList || [...timeList];
-          if (!currentList.includes(time)) {
-            return { ...p, timeList: [...currentList, time].sort() };
+          if (date) {
+            const dailyConfigs = { ...(p.dailyConfigs || {}) };
+            const dayConfig = { ...(dailyConfigs[date] || {}) };
+            const currentList = dayConfig.timeList || p.timeList || [...timeList];
+            if (!currentList.includes(time)) {
+              dayConfig.timeList = [...currentList, time].sort();
+              dailyConfigs[date] = dayConfig;
+              return { ...p, dailyConfigs };
+            }
+          } else {
+            const currentList = p.timeList || [...timeList];
+            if (!currentList.includes(time)) {
+              return { ...p, timeList: [...currentList, time].sort() };
+            }
           }
         }
         return p;
@@ -611,8 +638,8 @@ function SchedulingSystem() {
     }
   };
 
-  const handleRemoveTime = (time: string, proId?: string) => {
-    console.log('App: handleRemoveTime called for:', time, 'pro:', proId);
+  const handleRemoveTime = (time: string, proId?: string, date?: string) => {
+    console.log('App: handleRemoveTime called for:', time, 'pro:', proId, 'date:', date);
     
     let updatedProfessionals = [...professionals];
 
@@ -620,10 +647,26 @@ function SchedulingSystem() {
     if (proId && proId !== 'global') {
       updatedProfessionals = professionals.map(p => {
         if (p.id === proId) {
-          const currentList = p.timeList || [...timeList];
-          const newList = currentList.filter(t => t !== time);
-          console.log(`App: Updating pro ${p.name} timeList. Old size: ${currentList.length}, New size: ${newList.length}`);
-          return { ...p, timeList: newList.length > 0 ? newList : undefined };
+          if (date) {
+            const dailyConfigs = { ...(p.dailyConfigs || {}) };
+            const dayConfig = { ...(dailyConfigs[date] || {}) };
+            const currentList = dayConfig.timeList || p.timeList || [...timeList];
+            const newList = currentList.filter(t => t !== time);
+            dayConfig.timeList = newList.length > 0 ? newList : undefined;
+            
+            // If dayConfig becomes empty, we might want to remove it, but let's keep it for now if slotConfig exists
+            if (!dayConfig.timeList && !dayConfig.slotConfig) {
+              delete dailyConfigs[date];
+            } else {
+              dailyConfigs[date] = dayConfig;
+            }
+            return { ...p, dailyConfigs };
+          } else {
+            const currentList = p.timeList || [...timeList];
+            const newList = currentList.filter(t => t !== time);
+            console.log(`App: Updating pro ${p.name} timeList. Old size: ${currentList.length}, New size: ${newList.length}`);
+            return { ...p, timeList: newList.length > 0 ? newList : undefined };
+          }
         }
         return p;
       });
@@ -673,12 +716,28 @@ function SchedulingSystem() {
     });
   };
 
-  const handleResetToGlobal = (proId: string, type: 'timeList' | 'slotConfig') => {
+  const handleResetToGlobal = (proId: string, type: 'timeList' | 'slotConfig', date?: string) => {
     setProfessionals(prev => prev.map(p => {
       if (p.id === proId) {
         const newPro = { ...p };
-        if (type === 'timeList') delete newPro.timeList;
-        if (type === 'slotConfig') delete newPro.slotConfig;
+        if (date) {
+            if (newPro.dailyConfigs && newPro.dailyConfigs[date]) {
+                const dailyConfigs = { ...newPro.dailyConfigs };
+                const dayConfig = { ...dailyConfigs[date] };
+                if (type === 'timeList') delete dayConfig.timeList;
+                if (type === 'slotConfig') delete dayConfig.slotConfig;
+                
+                if (!dayConfig.timeList && !dayConfig.slotConfig) {
+                    delete dailyConfigs[date];
+                } else {
+                    dailyConfigs[date] = dayConfig;
+                }
+                newPro.dailyConfigs = dailyConfigs;
+            }
+        } else {
+            if (type === 'timeList') delete newPro.timeList;
+            if (type === 'slotConfig') delete newPro.slotConfig;
+        }
         return newPro;
       }
       return p;
@@ -728,6 +787,16 @@ function SchedulingSystem() {
     if (currentDate === date) {
       setCurrentDate(availableDates.find(d => d !== date) || '');
     }
+
+    // Clean up dailyConfigs for professionals on this date
+    setProfessionals(prev => prev.map(p => {
+      if (p.dailyConfigs && p.dailyConfigs[date]) {
+        const dailyConfigs = { ...p.dailyConfigs };
+        delete dailyConfigs[date];
+        return { ...p, dailyConfigs };
+      }
+      return p;
+    }));
 
     // 2. Persist cleanup to Firestore for this company
     try {

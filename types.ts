@@ -21,6 +21,7 @@ export interface Professional {
   companyId: string;
   slotConfig?: SlotConfig;
   timeList?: string[];
+  dailyConfigs?: Record<string, { slotConfig?: SlotConfig, timeList?: string[] }>;
 }
 
 // Maps a time string (e.g. "10:00") to its default type

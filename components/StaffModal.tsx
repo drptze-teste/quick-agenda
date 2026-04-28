@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Professional, SlotConfig, TimeSlot } from '../types';
+import { Professional, SlotConfig, TimeSlot, Company } from '../types';
 import { TIME_LIST } from '../constants';
 import { X, Plus, Users, Trash2, Clock, Calendar, Settings, BarChart2, Flower2, Upload, Download, Building2, Info, HelpCircle } from 'lucide-react';
 
@@ -14,16 +14,16 @@ interface StaffModalProps {
   // Schedule Config Props
   slotConfig: SlotConfig;
   onUpdateSlotConfig: (time: string, type: 'available' | 'break' | 'lunch') => void;
-  onUpdateProfessionalSlotConfig: (proId: string, time: string, type: 'available' | 'break' | 'lunch') => void;
+  onUpdateProfessionalSlotConfig: (proId: string, time: string, type: 'available' | 'break' | 'lunch', date?: string) => void;
   // Date Props
   availableDates: string[];
   onAddDate: (date: string) => void;
   onRemoveDate: (date: string) => void;
   // Time List Props
   timeList: string[];
-  onAddTime: (time: string, proId?: string) => void;
-  onRemoveTime: (time: string, proId?: string) => void;
-  onResetToGlobal: (proId: string, type: 'timeList' | 'slotConfig') => void;
+  onAddTime: (time: string, proId?: string, date?: string) => void;
+  onRemoveTime: (time: string, proId?: string, date?: string) => void;
+  onResetToGlobal: (proId: string, type: 'timeList' | 'slotConfig', date?: string) => void;
   onClearSchedules: () => void;
   // Client Props
   logoUrl: string;
@@ -78,6 +78,7 @@ const StaffModal: React.FC<StaffModalProps> = ({
   const [newCompanySlug, setNewCompanySlug] = useState('');
   const [newCompanyName, setNewCompanyName] = useState('');
   const [selectedProForConfig, setSelectedProForConfig] = useState<string>('global');
+  const [selectedDateForProConfig, setSelectedDateForProConfig] = useState<string>('default');
   const [confirmDeleteTime, setConfirmDeleteTime] = useState<string | null>(null);
   const [confirmClearAll, setConfirmClearAll] = useState(false);
 
@@ -102,7 +103,7 @@ const StaffModal: React.FC<StaffModalProps> = ({
   const handleAddTime = (e: React.FormEvent) => {
     e.preventDefault();
     if (newTime) {
-      onAddTime(newTime, selectedProForConfig);
+      onAddTime(newTime, selectedProForConfig, selectedDateForProConfig === 'default' ? undefined : selectedDateForProConfig);
       setNewTime('');
     }
   };
@@ -308,25 +309,51 @@ const StaffModal: React.FC<StaffModalProps> = ({
               <div className="animate-fade-in">
                 <div className="mb-6 flex flex-col gap-4 bg-blue-50 p-4 rounded-xl border border-blue-100">
                   <p className="text-sm text-gray-600">
-                    Defina o modelo padrão da agenda. Você pode configurar um modelo global ou específico para cada profissional.
+                    Defina o modelo padrão da agenda. Você pode configurar um modelo global ou específico para cada profissional e até para dias específicos.
                   </p>
                   
-                  <div className="flex items-center gap-3">
-                    <label className="text-xs font-bold text-gray-500 uppercase">Configurar para:</label>
-                    <select 
-                      value={selectedProForConfig}
-                      onChange={(e) => setSelectedProForConfig(e.target.value)}
-                      className="flex-1 px-3 py-2 bg-white border border-blue-200 rounded-lg text-sm font-medium text-corporate-blue outline-none focus:ring-2 focus:ring-corporate-blue"
-                    >
-                      <option value="global">Modelo Global (Todos)</option>
-                      {professionals.map(pro => (
-                        <option key={pro.id} value={pro.id}>{pro.name}</option>
-                      ))}
-                    </select>
-                    <div className="group relative">
-                      <HelpCircle size={18} className="text-blue-400 cursor-help" />
-                      <div className="absolute right-0 top-full mt-2 w-64 p-3 bg-slate-800 text-white text-[10px] rounded-xl shadow-2xl opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none">
-                        O "Modelo Global" define os horários para todos. Se um profissional precisar de horários diferentes, selecione o nome dele e altere individualmente.
+                  <div className="flex flex-col sm:flex-row gap-4">
+                    <div className="flex-1 flex flex-col gap-1">
+                      <label className="text-[10px] font-bold text-gray-500 uppercase">Configurar para:</label>
+                      <select 
+                        value={selectedProForConfig}
+                        onChange={(e) => {
+                          setSelectedProForConfig(e.target.value);
+                          if (e.target.value === 'global') setSelectedDateForProConfig('default');
+                        }}
+                        className="w-full px-3 py-2 bg-white border border-blue-200 rounded-lg text-sm font-medium text-corporate-blue outline-none focus:ring-2 focus:ring-corporate-blue"
+                      >
+                        <option value="global">Modelo Global (Todos)</option>
+                        {professionals.map(pro => (
+                          <option key={pro.id} value={pro.id}>{pro.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {selectedProForConfig !== 'global' && (
+                      <div className="flex-1 flex flex-col gap-1">
+                        <label className="text-[10px] font-bold text-gray-500 uppercase">Dia específico:</label>
+                        <select 
+                          value={selectedDateForProConfig}
+                          onChange={(e) => setSelectedDateForProConfig(e.target.value)}
+                          className="w-full px-3 py-2 bg-white border border-blue-200 rounded-lg text-sm font-medium text-corporate-blue outline-none focus:ring-2 focus:ring-corporate-blue"
+                        >
+                          <option value="default">Padrão do Profissional</option>
+                          {availableDates.map(date => (
+                            <option key={date} value={date}>
+                              {new Date(date + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                    
+                    <div className="flex items-end pb-1">
+                      <div className="group relative">
+                        <HelpCircle size={18} className="text-blue-400 cursor-help" />
+                        <div className="absolute right-0 top-full mt-2 w-64 p-3 bg-slate-800 text-white text-[10px] rounded-xl shadow-2xl opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none">
+                          O "Modelo Global" define os horários para todos. O "Padrão do Profissional" sobrescreve o global. Um "Dia Específico" sobrescreve ambos para aquela data.
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -334,17 +361,25 @@ const StaffModal: React.FC<StaffModalProps> = ({
                   {selectedProForConfig !== 'global' && (
                     <div className="flex gap-4 mt-2 px-1">
                       <button 
-                        onClick={() => onResetToGlobal(selectedProForConfig, 'timeList')}
+                        onClick={() => onResetToGlobal(
+                          selectedProForConfig, 
+                          'timeList', 
+                          selectedDateForProConfig === 'default' ? undefined : selectedDateForProConfig
+                        )}
                         className="text-[10px] font-bold text-blue-600 uppercase tracking-wider hover:text-blue-800 transition-colors"
                       >
-                        Resetar Horários para Global
+                        {selectedDateForProConfig === 'default' ? 'Resetar para Global' : 'Resetar Dia para Padrão'}
                       </button>
                       <div className="w-[1px] h-3 bg-blue-200"></div>
                       <button 
-                        onClick={() => onResetToGlobal(selectedProForConfig, 'slotConfig')}
+                        onClick={() => onResetToGlobal(
+                          selectedProForConfig, 
+                          'slotConfig', 
+                          selectedDateForProConfig === 'default' ? undefined : selectedDateForProConfig
+                        )}
                         className="text-[10px] font-bold text-blue-600 uppercase tracking-wider hover:text-blue-800 transition-colors"
                       >
-                        Resetar Pausas para Global
+                        {selectedDateForProConfig === 'default' ? 'Resetar Pausas para Global' : 'Resetar Pausas para Padrão'}
                       </button>
                     </div>
                   )}
@@ -353,7 +388,12 @@ const StaffModal: React.FC<StaffModalProps> = ({
                 {/* Add New Time Form */}
                 {(() => {
                   const pro = professionals.find(p => p.id === selectedProForConfig);
-                  const activeList = selectedProForConfig === 'global' ? timeList : (pro?.timeList || timeList);
+                  const isDayConfig = selectedDateForProConfig !== 'default' && selectedProForConfig !== 'global';
+                  const dayConfig = isDayConfig ? pro?.dailyConfigs?.[selectedDateForProConfig] : undefined;
+                  
+                  const activeList = selectedProForConfig === 'global' 
+                    ? timeList 
+                    : (dayConfig?.timeList || pro?.timeList || timeList);
                   
                   return (
                     <>
@@ -377,7 +417,7 @@ const StaffModal: React.FC<StaffModalProps> = ({
                         {activeList.map((time) => {
                           const currentType = selectedProForConfig === 'global' 
                             ? (slotConfig[time] || 'available')
-                            : (pro?.slotConfig?.[time] || slotConfig[time] || 'available');
+                            : (dayConfig?.slotConfig?.[time] || pro?.slotConfig?.[time] || slotConfig[time] || 'available');
 
                           return (
                             <div key={time} className="flex items-center justify-between p-2 border border-gray-200 rounded hover:bg-gray-50 group">
@@ -387,7 +427,11 @@ const StaffModal: React.FC<StaffModalProps> = ({
                                     <button 
                                       type="button"
                                       onClick={() => {
-                                        onRemoveTime(time, selectedProForConfig);
+                                        onRemoveTime(
+                                          time, 
+                                          selectedProForConfig, 
+                                          selectedDateForProConfig === 'default' ? undefined : selectedDateForProConfig
+                                        );
                                         setConfirmDeleteTime(null);
                                       }}
                                       className="text-[10px] bg-red-600 text-white px-2 py-1 rounded font-bold hover:bg-red-700 transition-colors"
@@ -424,7 +468,12 @@ const StaffModal: React.FC<StaffModalProps> = ({
                                   if (selectedProForConfig === 'global') {
                                     onUpdateSlotConfig(time, newType);
                                   } else {
-                                    onUpdateProfessionalSlotConfig(selectedProForConfig, time, newType);
+                                    onUpdateProfessionalSlotConfig(
+                                      selectedProForConfig, 
+                                      time, 
+                                      newType, 
+                                      selectedDateForProConfig === 'default' ? undefined : selectedDateForProConfig
+                                    );
                                   }
                                 }}
                                 className={`text-sm rounded px-2 py-1 border outline-none cursor-pointer font-medium
