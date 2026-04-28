@@ -69,8 +69,28 @@ service cloud.firestore {
     // Rules
     // ===============================================================
 
-    match /{document=**} {
-      allow read, write: if true;
+    // CRITICAL: Relaxed rules for prototype to allow admin password flow 
+    // without requiring Google/Anonymous Auth (which might be disabled).
+    // In production, these should be restricted to isAdmin().
+
+    match /companies/{companyId} {
+      allow read: if true;
+      allow write: if true; 
+    }
+
+    match /professionals/{professionalId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /schedules/{scheduleId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    match /users/{userId} {
+      allow read: if true;
+      allow write: if isAuthenticated() && request.auth.uid == userId;
     }
   }
 }

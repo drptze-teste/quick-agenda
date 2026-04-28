@@ -169,7 +169,6 @@ const StaffModal: React.FC<StaffModalProps> = ({
     });
 
     const csvContent = [
-      'sep=;',
       headers.join(';'),
       ...rows.map(row => row.map(cell => `"${cell.replace(/"/g, '""')}"`).join(';'))
     ].join('\r\n');

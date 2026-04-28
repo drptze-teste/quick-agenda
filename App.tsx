@@ -154,17 +154,11 @@ function SchedulingSystem() {
         setIsNotFound(false);
 
         // 1. Fetch Company Settings
-        let companyDoc;
-        try {
-          companyDoc = await getDoc(doc(db, 'companies', companySlug || 'empresa-a'));
-        } catch (e) {
-          handleFirestoreError(e, OperationType.GET, `companies/${companySlug}`);
-          return;
-        }
+        const companyDoc = await getDoc(doc(db, 'companies', companySlug));
         
         if (!companyDoc.exists()) {
           // Check if it's one of the default companies
-          const defaultInfo = DEFAULT_COMPANIES.find(c => c.slug === (companySlug || 'empresa-a'));
+          const defaultInfo = DEFAULT_COMPANIES.find(c => c.slug === companySlug);
           if (defaultInfo) {
             // Initialize default company
             const newCompany: Company = {
@@ -176,7 +170,7 @@ function SchedulingSystem() {
               updatedAt: new Date().toISOString()
             };
             try {
-              await setDoc(doc(db, 'companies', companySlug || 'empresa-a'), newCompany);
+              await setDoc(doc(db, 'companies', companySlug), newCompany);
             } catch (e) {
               handleFirestoreError(e, OperationType.CREATE, `companies/${companySlug}`);
             }
@@ -202,15 +196,8 @@ function SchedulingSystem() {
         }
 
         // 2. Fetch professionals for this company
-        let professionalsSnapshot;
-        try {
-          const qPros = query(collection(db, 'professionals'), where('companyId', '==', companySlug || 'empresa-a'));
-          professionalsSnapshot = await getDocs(qPros);
-        } catch (e) {
-          handleFirestoreError(e, OperationType.LIST, 'professionals');
-          return;
-        }
-
+        const qPros = query(collection(db, 'professionals'), where('companyId', '==', companySlug));
+        const professionalsSnapshot = await getDocs(qPros);
         let professionalsData = professionalsSnapshot.docs.map(doc => ({
           id: doc.id,
           ...doc.data()
@@ -218,7 +205,7 @@ function SchedulingSystem() {
 
         if (professionalsData.length === 0) {
           // Create a default professional for new companies
-          const defaultPro = { ...DEFAULT_PROFESSIONAL, companyId: companySlug || 'empresa-a' };
+          const defaultPro = { ...DEFAULT_PROFESSIONAL, companyId: companySlug };
           try {
             await setDoc(doc(db, 'professionals', defaultPro.id), defaultPro);
           } catch (e) {
@@ -231,15 +218,8 @@ function SchedulingSystem() {
         setSelectedProfessionalId(professionalsData[0].id);
 
         // 3. Fetch schedules for this company
-        let schedulesSnapshot;
-        try {
-          const qSchedules = query(collection(db, 'schedules'), where('companyId', '==', companySlug || 'empresa-a'));
-          schedulesSnapshot = await getDocs(qSchedules);
-        } catch (e) {
-          handleFirestoreError(e, OperationType.LIST, 'schedules');
-          return;
-        }
-
+        const qSchedules = query(collection(db, 'schedules'), where('companyId', '==', companySlug));
+        const schedulesSnapshot = await getDocs(qSchedules);
         const schedulesMap: Record<string, TimeSlot[]> = {};
         schedulesSnapshot.docs.forEach(doc => {
           schedulesMap[doc.id] = doc.data()?.slots;
@@ -249,11 +229,10 @@ function SchedulingSystem() {
         setIsOnline(true);
         
       } catch (error) {
-        console.error('Error loading company data:', error);
-        if (error instanceof Error) {
-          // If it was already handled by handleFirestoreError, it will contain specialized info
-          throw error; 
+        if (error instanceof Error && error.message.includes('Firestore')) {
+          throw error; // Let ErrorBoundary handle it
         }
+        console.error('Error loading company data:', error);
         setIsOnline(false);
       } finally {
         isInitialLoad.current = false;
@@ -794,18 +773,6 @@ function SchedulingSystem() {
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col items-center p-4 sm:p-8 font-sans">
       
-      {/* Toast Notification */}
-      {toast && (
-        <div className={`fixed bottom-8 right-8 z-[100] flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl border animate-slide-up ${
-          toast.type === 'success' ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 
-          toast.type === 'error' ? 'bg-rose-50 border-rose-100 text-rose-800' : 
-          'bg-blue-50 border-blue-100 text-blue-800'
-        }`}>
-          {toast.type === 'success' ? <CheckCircle2 size={20} /> : toast.type === 'error' ? <XCircle size={20} /> : <Info size={20} />}
-          <span className="font-bold text-sm tracking-tight">{toast.message}</span>
-        </div>
-      )}
-
       {/* Toast Notification */}
       {toast && (
         <div className={`fixed bottom-8 right-8 z-[100] flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl border animate-slide-up ${
