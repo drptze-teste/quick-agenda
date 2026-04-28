@@ -69,31 +69,8 @@ service cloud.firestore {
     // Rules
     // ===============================================================
 
-    // Connectivity test path
-    match /test/connection {
-      allow read: if true;
-    }
-
-    match /companies/{companyId} {
-      allow read, write: if true;
-    }
-
-    match /professionals/{professionalId} {
-      allow read, write: if true;
-    }
-
-    match /schedules/{scheduleId} {
-      allow read, write: if true;
-    }
-
-    match /users/{userId} {
-      allow read: if true;
-      allow write: if request.auth != null && request.auth.uid == userId;
-    }
-
-    // Default deny catch-all at the end
     match /{document=**} {
-      allow read, write: if false;
+      allow read, write: if true;
     }
   }
 }
