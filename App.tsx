@@ -4,7 +4,7 @@ import { Routes, Route, useParams, useNavigate, Navigate } from 'react-router-do
 import { INITIAL_SLOTS, generateScheduleFromConfig, DEFAULT_SLOT_CONFIG, DEFAULT_PROFESSIONAL, TIME_LIST, DEFAULT_COMPANIES } from './constants';
 import { TimeSlot, Professional, SlotConfig, Company, PresenceType } from './types';
 import SlotItem from './components/SlotItem';
-import { LayoutGrid, List, Sparkles, Flower2, CalendarDays, Users, UserCircle, ChevronDown, Settings, CloudOff, Cloud, Printer, Trash2, Building2, CheckCircle2, XCircle } from 'lucide-react';
+import { LayoutGrid, List, Sparkles, Flower2, CalendarDays, Users, UserCircle, ChevronDown, Settings, CloudOff, Cloud, Printer, Trash2, Building2, CheckCircle2, XCircle, Info, HelpCircle } from 'lucide-react';
 import BookingModal from './components/BookingModal';
 import BenesseLogo from './components/BenesseLogo';
 import StaffModal from './components/StaffModal';
