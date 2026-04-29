@@ -15,6 +15,8 @@ interface StaffModalProps {
   slotConfig: SlotConfig;
   onUpdateSlotConfig: (time: string, type: 'available' | 'break' | 'lunch') => void;
   onUpdateProfessionalSlotConfig: (proId: string, time: string, type: 'available' | 'break' | 'lunch', date?: string) => void;
+  onUpdateProfessionalActiveDate: (proId: string, date: string, active: boolean) => void;
+  onUpdateProfessionalDailyName: (proId: string, date: string, name: string) => void;
   // Date Props
   availableDates: string[];
   onAddDate: (date: string) => void;
@@ -52,6 +54,8 @@ const StaffModal: React.FC<StaffModalProps> = ({
   slotConfig,
   onUpdateSlotConfig,
   onUpdateProfessionalSlotConfig,
+  onUpdateProfessionalActiveDate,
+  onUpdateProfessionalDailyName,
   availableDates,
   onAddDate,
   onRemoveDate,
@@ -359,28 +363,80 @@ const StaffModal: React.FC<StaffModalProps> = ({
                   </div>
 
                   {selectedProForConfig !== 'global' && (
-                    <div className="flex gap-4 mt-2 px-1">
-                      <button 
-                        onClick={() => onResetToGlobal(
-                          selectedProForConfig, 
-                          'timeList', 
-                          selectedDateForProConfig === 'default' ? undefined : selectedDateForProConfig
-                        )}
-                        className="text-[10px] font-bold text-blue-600 uppercase tracking-wider hover:text-blue-800 transition-colors"
-                      >
-                        {selectedDateForProConfig === 'default' ? 'Resetar para Global' : 'Resetar Dia para Padrão'}
-                      </button>
-                      <div className="w-[1px] h-3 bg-blue-200"></div>
-                      <button 
-                        onClick={() => onResetToGlobal(
-                          selectedProForConfig, 
-                          'slotConfig', 
-                          selectedDateForProConfig === 'default' ? undefined : selectedDateForProConfig
-                        )}
-                        className="text-[10px] font-bold text-blue-600 uppercase tracking-wider hover:text-blue-800 transition-colors"
-                      >
-                        {selectedDateForProConfig === 'default' ? 'Resetar Pausas para Global' : 'Resetar Pausas para Padrão'}
-                      </button>
+                    <div className="flex flex-col gap-4 mt-4 p-4 bg-white rounded-xl border border-blue-100 animate-fade-in shadow-sm">
+                      <div className="flex items-center justify-between">
+                         <div>
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Configuração Específica</p>
+                            <h5 className="font-bold text-slate-700">
+                               {selectedDateForProConfig === 'default' 
+                                 ? `Configuração Padrão: ${professionals.find(p => p.id === selectedProForConfig)?.name}` 
+                                 : `Configuração para ${new Date(selectedDateForProConfig + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}`}
+                            </h5>
+                         </div>
+                         
+                         {selectedDateForProConfig !== 'default' && (
+                            <div className="flex items-center gap-2">
+                               <label className="text-xs font-bold text-slate-500">Ativo nesta data:</label>
+                               <button
+                                 onClick={() => {
+                                    const pro = professionals.find(p => p.id === selectedProForConfig);
+                                    const isActive = !pro?.activeDates || pro.activeDates.length === 0 || pro.activeDates.includes(selectedDateForProConfig);
+                                    onUpdateProfessionalActiveDate(selectedProForConfig, selectedDateForProConfig, !isActive);
+                                 }}
+                                 className={`px-3 py-1 rounded-full text-[10px] font-bold transition-all ${
+                                    (!professionals.find(p => p.id === selectedProForConfig)?.activeDates || 
+                                     professionals.find(p => p.id === selectedProForConfig)?.activeDates?.length === 0 || 
+                                     professionals.find(p => p.id === selectedProForConfig)?.activeDates?.includes(selectedDateForProConfig))
+                                    ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' 
+                                    : 'bg-slate-100 text-slate-500 border border-slate-200'
+                                 }`}
+                               >
+                                 {(!professionals.find(p => p.id === selectedProForConfig)?.activeDates || 
+                                   professionals.find(p => p.id === selectedProForConfig)?.activeDates?.length === 0 || 
+                                   professionals.find(p => p.id === selectedProForConfig)?.activeDates?.includes(selectedDateForProConfig))
+                                   ? 'ATIVO' : 'INATIVO'}
+                               </button>
+                            </div>
+                         )}
+                      </div>
+
+                      {selectedDateForProConfig !== 'default' && (
+                        <div className="flex flex-col gap-1">
+                           <label className="text-[10px] font-bold text-gray-500 uppercase">Nome de Exibição neste dia:</label>
+                           <input 
+                              type="text"
+                              value={professionals.find(p => p.id === selectedProForConfig)?.dailyNames?.[selectedDateForProConfig] || ''}
+                              placeholder={professionals.find(p => p.id === selectedProForConfig)?.name || ''}
+                              onChange={(e) => onUpdateProfessionalDailyName(selectedProForConfig, selectedDateForProConfig, e.target.value)}
+                              className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-corporate-blue"
+                           />
+                           <p className="text-[9px] text-slate-400 italic">Deixe em branco para usar o nome padrão do profissional.</p>
+                        </div>
+                      )}
+
+                      <div className="flex gap-4 px-1 border-t border-slate-50 pt-2">
+                        <button 
+                          onClick={() => onResetToGlobal(
+                            selectedProForConfig, 
+                            'timeList', 
+                            selectedDateForProConfig === 'default' ? undefined : selectedDateForProConfig
+                          )}
+                          className="text-[10px] font-bold text-blue-600 uppercase tracking-wider hover:text-blue-800 transition-colors"
+                        >
+                          {selectedDateForProConfig === 'default' ? 'Resetar Horários para Global' : 'Resetar Horários do Dia'}
+                        </button>
+                        <div className="w-[1px] h-3 bg-blue-200"></div>
+                        <button 
+                          onClick={() => onResetToGlobal(
+                            selectedProForConfig, 
+                            'slotConfig', 
+                            selectedDateForProConfig === 'default' ? undefined : selectedDateForProConfig
+                          )}
+                          className="text-[10px] font-bold text-blue-600 uppercase tracking-wider hover:text-blue-800 transition-colors"
+                        >
+                          {selectedDateForProConfig === 'default' ? 'Resetar Pausas para Global' : 'Resetar Pausas do Dia'}
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>

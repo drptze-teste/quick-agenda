@@ -371,10 +371,45 @@ function SchedulingSystem() {
   // Helper to generate key
   const getScheduleKey = (date: string, proId: string) => `${date}::${proId}`;
 
-  const selectedProfessional = professionals.find(p => p.id === selectedProfessionalId) || professionals[0];
+  const filteredProfessionals = professionals.filter(p => 
+    !p.activeDates || p.activeDates.length === 0 || p.activeDates.includes(currentDate)
+  ).map(p => ({
+    ...p,
+    displayName: p.dailyNames?.[currentDate] || p.name
+  }));
+
+  const selectedProfessional = filteredProfessionals.find(p => p.id === selectedProfessionalId) || filteredProfessionals[0];
+  
+  // Update persistence for professionals to include new fields
+  useEffect(() => {
+    const saveProfessionals = async () => {
+      if (!companySlug || professionals.length === 0) return;
+      
+      for (const pro of professionals) {
+        try {
+          await setDoc(doc(db, 'professionals', pro.id), {
+            id: pro.id,
+            name: pro.name,
+            companyId: companySlug,
+            slotConfig: pro.slotConfig || null,
+            timeList: pro.timeList || null,
+            dailyConfigs: pro.dailyConfigs || null,
+            activeDates: pro.activeDates || null,
+            dailyNames: pro.dailyNames || null
+          }, { merge: true });
+        } catch (error) {
+          console.error("Error saving professional:", error);
+        }
+      }
+    };
+    saveProfessionals();
+  }, [professionals, companySlug]);
+
+  // Use the display name from the filtered/mapped list
+  const activeProfessional = selectedProfessional;
   
   // Check for day-specific config
-  const dayConfig = selectedProfessional?.dailyConfigs?.[currentDate];
+  const dayConfig = activeProfessional?.dailyConfigs?.[currentDate];
   
   const activeTimeList = dayConfig?.timeList || selectedProfessional?.timeList || timeList;
   
@@ -716,6 +751,43 @@ function SchedulingSystem() {
     });
   };
 
+  const handleUpdateProfessionalActiveDate = (proId: string, date: string, active: boolean) => {
+    setProfessionals(prev => prev.map(p => {
+      if (p.id === proId) {
+        const activeDates = [...(p.activeDates || [])];
+        if (active && !activeDates.includes(date)) {
+          activeDates.push(date);
+        } else if (!active && activeDates.includes(date)) {
+          const newList = activeDates.filter(d => d !== date);
+          return { ...p, activeDates: newList.length > 0 ? newList : undefined };
+        } else if (!active && !activeDates.includes(date) && activeDates.length === 0) {
+           // If it was empty, it means "all dates are active". To make it active for all BUT this one,
+           // we'd need to populate it with all others. But simple toggle for "is active today" is better.
+           // However, if we want to "disable" for a date, we need to know all available dates.
+           const allOthers = availableDates.filter(d => d !== date);
+           return { ...p, activeDates: allOthers };
+        }
+        return { ...p, activeDates: activeDates.length > 0 ? activeDates : undefined };
+      }
+      return p;
+    }));
+  };
+
+  const handleUpdateProfessionalDailyName = (proId: string, date: string, name: string) => {
+    setProfessionals(prev => prev.map(p => {
+      if (p.id === proId) {
+        const dailyNames = { ...(p.dailyNames || {}) };
+        if (name && name !== p.name) {
+          dailyNames[date] = name;
+        } else {
+          delete dailyNames[date];
+        }
+        return { ...p, dailyNames: Object.keys(dailyNames).length > 0 ? dailyNames : undefined };
+      }
+      return p;
+    }));
+  };
+
   const handleResetToGlobal = (proId: string, type: 'timeList' | 'slotConfig', date?: string) => {
     setProfessionals(prev => prev.map(p => {
       if (p.id === proId) {
@@ -936,7 +1008,7 @@ function SchedulingSystem() {
         <div className="mt-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div className="flex items-center gap-2 flex-1 overflow-hidden">
             <div className="flex overflow-x-auto pb-2 gap-2 scrollbar-hide">
-              {professionals.map(pro => (
+              {filteredProfessionals.map(pro => (
                 <button
                   key={pro.id}
                   onClick={() => setSelectedProfessionalId(pro.id)}
@@ -948,7 +1020,7 @@ function SchedulingSystem() {
                   `}
                 >
                   <UserCircle size={16} className={selectedProfessionalId === pro.id ? 'text-blue-200' : 'text-gray-400'} />
-                  {pro.name}
+                  {pro.displayName}
                 </button>
               ))}
             </div>
@@ -1185,6 +1257,8 @@ function SchedulingSystem() {
         professionals={professionals}
         onAddProfessional={handleAddProfessional}
         onRemoveProfessional={handleRemoveProfessional}
+        onUpdateProfessionalActiveDate={handleUpdateProfessionalActiveDate}
+        onUpdateProfessionalDailyName={handleUpdateProfessionalDailyName}
         slotConfig={slotConfig}
         onUpdateSlotConfig={handleUpdateSlotConfig}
         onUpdateProfessionalSlotConfig={handleUpdateProfessionalSlotConfig}

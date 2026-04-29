@@ -22,6 +22,8 @@ export interface Professional {
   slotConfig?: SlotConfig;
   timeList?: string[];
   dailyConfigs?: Record<string, { slotConfig?: SlotConfig, timeList?: string[] }>;
+  activeDates?: string[]; // New: if set, professional only appears on these dates
+  dailyNames?: Record<string, string>; // New: override name for specific dates
 }
 
 // Maps a time string (e.g. "10:00") to its default type
